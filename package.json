@@ -1,0 +1,34 @@
+{
+  "name": "real-estate-tokenization",
+  "version": "1.0.0",
+  "description": "Real estate tokenization smart contracts with ERC-20 on Base network",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:local": "hardhat run scripts/deploy.ts",
+    "deploy:baseSepolia": "hardhat run scripts/deploy.ts --network baseSepolia",
+    "deploy:baseMainnet": "hardhat run scripts/deploy.ts --network baseMainnet"
+  },
+  "keywords": [
+    "blockchain",
+    "erc20",
+    "real-estate",
+    "tokenization",
+    "base"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
+    "hardhat": "^2.22.0",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.0.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.1.0",
+    "@openzeppelin/contracts-upgradeable": "^5.6.1",
+    "@openzeppelin/hardhat-upgrades": "^3.9.1"
+  }
+}
