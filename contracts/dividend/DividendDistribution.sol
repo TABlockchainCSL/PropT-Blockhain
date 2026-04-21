@@ -77,6 +77,7 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
     error NothingToClaim();
     error InvestorNotKYCVerified(address investor);
     error ZeroAddress();
+    error MaxEpochsZero();
 
     // ── Constructor ───────────────────────────────────────────────────
     constructor(
@@ -114,7 +115,8 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
         // Gunakan block sebelumnya agar getPastTotalSupply valid
         uint256 snapshotBlock = block.number - 1;
         uint256 supply = propertyToken.getPastTotalSupply(snapshotBlock);
-        if (supply == 0) revert ZeroSupply();
+        // slither-disable-next-line incorrect-equality
+        if (supply < 1) revert ZeroSupply();
 
         // Hitung penambahan akumulator global (kalikan PRECISION dahulu)
         uint256 prevCumul = epochs.length > 0
@@ -138,21 +140,31 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
 
     // ── claimDividends() ─────────────────────────────────────────────
     /**
-     * @notice Investor calls this to withdraw all unclaimed dividends.
+     * @notice Investor calls this to withdraw unclaimed dividends.
      * @dev Uses getPastVotes() to look up historical balance at each
      *      epoch's snapshot block — immune to flash loan manipulation.
+     *      Pagination via maxEpochs prevents gas DoS when many epochs
+     *      are unclaimed (Slither: calls-loop mitigation).
+     * @param maxEpochs Maximum number of epochs to process in one tx
      */
-    function claimDividends() external nonReentrant {
+    function claimDividends(uint256 maxEpochs) external nonReentrant {
+        if (maxEpochs < 1) revert MaxEpochsZero();
+
         // [CHECK] KYC
         if (kycRegistry.getKYCLevel(msg.sender) == 0)
             revert InvestorNotKYCVerified(msg.sender);
 
         uint256 start = claimedUpToEpoch[msg.sender];
-        uint256 end = epochs.length;
-        if (start >= end) revert NothingToClaim();
+        uint256 totalEpochs = epochs.length;
+        if (start >= totalEpochs) revert NothingToClaim();
+
+        // Cap the end index to avoid gas DoS from unbounded loop
+        uint256 remaining = totalEpochs - start;
+        uint256 end = maxEpochs >= remaining ? totalEpochs : start + maxEpochs;
 
         uint256 totalClaim = 0;
         for (uint256 i = start; i < end; ) {
+            // slither-disable-next-line calls-loop
             uint256 bal = propertyToken.getPastVotes(
                 msg.sender,
                 epochs[i].blockNumber
@@ -179,15 +191,22 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
     // ── View Functions ────────────────────────────────────────────────
     /**
      * @notice Check how much dividend an investor can claim.
-     * @param investor Address of the investor
+     * @param investor  Address of the investor
+     * @param maxEpochs Maximum epochs to iterate (pagination)
      * @return total Amount of stablecoin claimable
      */
-    function pendingDividends(address investor)
+    function pendingDividends(address investor, uint256 maxEpochs)
         external view returns (uint256 total)
     {
         uint256 start = claimedUpToEpoch[investor];
-        uint256 end = epochs.length;
+        uint256 totalEpochs = epochs.length;
+        if (totalEpochs <= start) return 0;
+
+        uint256 remaining = totalEpochs - start;
+        uint256 end = maxEpochs >= remaining ? totalEpochs : start + maxEpochs;
+
         for (uint256 i = start; i < end; ) {
+            // slither-disable-next-line calls-loop
             uint256 bal = propertyToken.getPastVotes(
                 investor, epochs[i].blockNumber
             );

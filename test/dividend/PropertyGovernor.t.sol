@@ -519,19 +519,19 @@ contract PropertyGovernorTest is Test {
 
         // ── Step 6: Investors claim final dividends ──────────
         // voter1 (400/1000 = 40%) → 2000 USDC
-        assertEq(dividend.pendingDividends(voter1), 2000e6);
+        assertEq(dividend.pendingDividends(voter1, type(uint256).max), 2000e6);
         vm.prank(voter1);
-        dividend.claimDividends();
+        dividend.claimDividends(type(uint256).max);
         assertEq(usdc.balanceOf(voter1), 2000e6);
 
         // voter2 (350/1000 = 35%) → 1750 USDC
         vm.prank(voter2);
-        dividend.claimDividends();
+        dividend.claimDividends(type(uint256).max);
         assertEq(usdc.balanceOf(voter2), 1750e6);
 
         // voter3 (250/1000 = 25%) → 1250 USDC
         vm.prank(voter3);
-        dividend.claimDividends();
+        dividend.claimDividends(type(uint256).max);
         assertEq(usdc.balanceOf(voter3), 1250e6);
 
         // ── Step 7: Investors burn their tokens ──────────────
@@ -794,6 +794,336 @@ contract PropertyGovernorTest is Test {
         assertEq(
             uint256(governor.state(proposalId)),
             uint256(IGovernor.ProposalState.Succeeded)
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Proposal Cancellation
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_proposalCancellation() public {
+        (
+            address[] memory targets,
+            uint256[] memory values,
+            bytes[] memory calldatas,
+            string memory description
+        ) = _createDummyProposal();
+
+        // Admin proposes
+        vm.prank(admin);
+        uint256 proposalId = governor.propose(
+            targets, values, calldatas, description
+        );
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Pending)
+        );
+
+        // Cancel the proposal — Governor allows proposer to cancel
+        // In OpenZeppelin Governor, cancel needs matching params
+        vm.prank(admin);
+        governor.cancel(
+            targets, values, calldatas, keccak256(bytes(description))
+        );
+
+        // State should now be Canceled (7)
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Canceled)
+        );
+    }
+
+    function test_cancelQueuedProposal_reverts() public {
+        (
+            address[] memory targets,
+            uint256[] memory values,
+            bytes[] memory calldatas,
+            string memory description
+        ) = _createDummyProposal();
+
+        // Full flow up to Queued
+        vm.prank(admin);
+        uint256 proposalId = governor.propose(
+            targets, values, calldatas, description
+        );
+
+        vm.roll(block.number + governor.votingDelay() + 1);
+
+        vm.prank(voter1);
+        governor.castVote(proposalId, 1);
+        vm.prank(voter2);
+        governor.castVote(proposalId, 1);
+
+        vm.roll(block.number + governor.votingPeriod() + 1);
+
+        governor.queue(
+            targets, values, calldatas, keccak256(bytes(description))
+        );
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Queued)
+        );
+
+        // OZ Governor v5 only allows cancel on Pending proposals
+        // Canceling a Queued proposal should revert
+        vm.prank(admin);
+        vm.expectRevert();
+        governor.cancel(
+            targets, values, calldatas, keccak256(bytes(description))
+        );
+
+        // State should remain Queued
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Queued)
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Cannot Vote After Voting Period Ends
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_cannotVoteAfterPeriodEnds() public {
+        (
+            address[] memory targets,
+            uint256[] memory values,
+            bytes[] memory calldatas,
+            string memory description
+        ) = _createDummyProposal();
+
+        vm.prank(admin);
+        uint256 proposalId = governor.propose(
+            targets, values, calldatas, description
+        );
+
+        // Advance past votingDelay + votingPeriod
+        vm.roll(block.number + governor.votingDelay() + governor.votingPeriod() + 2);
+
+        // Proposal is no longer Active — vote should revert
+        vm.prank(voter1);
+        vm.expectRevert();
+        governor.castVote(proposalId, 1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Multiple Concurrent Proposals
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_multipleConcurrentProposals() public {
+        // Proposal A
+        (
+            address[] memory targetsA,
+            uint256[] memory valuesA,
+            bytes[] memory calldatasA,
+        ) = _createDummyProposal();
+        string memory descA = "Proposal A: First concurrent";
+
+        // Proposal B — different description so different proposalId
+        string memory descB = "Proposal B: Second concurrent";
+
+        // Admin proposes both
+        vm.startPrank(admin);
+        uint256 idA = governor.propose(targetsA, valuesA, calldatasA, descA);
+        uint256 idB = governor.propose(targetsA, valuesA, calldatasA, descB);
+        vm.stopPrank();
+
+        // Both should be Pending
+        assertEq(
+            uint256(governor.state(idA)),
+            uint256(IGovernor.ProposalState.Pending)
+        );
+        assertEq(
+            uint256(governor.state(idB)),
+            uint256(IGovernor.ProposalState.Pending)
+        );
+
+        // Different proposal IDs
+        assertTrue(idA != idB);
+
+        // Advance to voting
+        vm.roll(block.number + governor.votingDelay() + 1);
+
+        // Vote For on A, Against on B
+        vm.prank(voter1);
+        governor.castVote(idA, 1); // For
+        vm.prank(voter1);
+        governor.castVote(idB, 0); // Against
+
+        vm.prank(voter2);
+        governor.castVote(idA, 1); // For
+        vm.prank(voter2);
+        governor.castVote(idB, 0); // Against
+
+        vm.roll(block.number + governor.votingPeriod() + 1);
+
+        // A should succeed, B should be defeated
+        assertEq(
+            uint256(governor.state(idA)),
+            uint256(IGovernor.ProposalState.Succeeded)
+        );
+        assertEq(
+            uint256(governor.state(idB)),
+            uint256(IGovernor.ProposalState.Defeated)
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Non-Delegated Voter Has Zero Voting Power
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_nonDelegatedVoter_zeroPower() public {
+        // Create a new holder that does NOT delegate
+        address noDelegateHolder = makeAddr("noDelegate");
+        kyc.addUser(noDelegateHolder, 1);
+
+        // Transfer some tokens from voter1 to noDelegate holder
+        vm.prank(voter1);
+        token.transfer(noDelegateHolder, 100e18);
+        vm.roll(block.number + 1);
+
+        (
+            address[] memory targets,
+            uint256[] memory values,
+            bytes[] memory calldatas,
+            string memory description
+        ) = _createDummyProposal();
+
+        vm.prank(admin);
+        uint256 proposalId = governor.propose(
+            targets, values, calldatas, description
+        );
+
+        vm.roll(block.number + governor.votingDelay() + 1);
+
+        // Holder votes — but snapshot shows 0 voting power (no delegate)
+        vm.prank(noDelegateHolder);
+        governor.castVote(proposalId, 1);
+
+        // Only noDelegateHolder voted (0 power), quorum not met
+        vm.roll(block.number + governor.votingPeriod() + 1);
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Defeated)
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Vote Weight Verification
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_voteWeight_proportionalToTokens() public {
+        (
+            address[] memory targets,
+            uint256[] memory values,
+            bytes[] memory calldatas,
+            string memory description
+        ) = _createDummyProposal();
+
+        vm.prank(admin);
+        uint256 proposalId = governor.propose(
+            targets, values, calldatas, description
+        );
+
+        vm.roll(block.number + governor.votingDelay() + 1);
+
+        // voter1 (400e18) votes For, voter2 (350e18) votes Against
+        vm.prank(voter1);
+        governor.castVote(proposalId, 1);
+        vm.prank(voter2);
+        governor.castVote(proposalId, 0);
+
+        // Get vote tallies
+        (uint256 against, uint256 forVotes, uint256 abstain) =
+            governor.proposalVotes(proposalId);
+
+        // Verify weights match token holdings at snapshot
+        assertEq(forVotes, 400e18);    // voter1
+        assertEq(against, 350e18);     // voter2
+        assertEq(abstain, 0);
+
+        vm.roll(block.number + governor.votingPeriod() + 1);
+
+        // For (400) > Against (350) → Succeeded
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Succeeded)
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Cannot Execute Without Queue (Timelock Integration)
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_cannotExecuteWithoutQueue() public {
+        (
+            address[] memory targets,
+            uint256[] memory values,
+            bytes[] memory calldatas,
+            string memory description
+        ) = _createDummyProposal();
+
+        vm.prank(admin);
+        uint256 proposalId = governor.propose(
+            targets, values, calldatas, description
+        );
+
+        vm.roll(block.number + governor.votingDelay() + 1);
+
+        vm.prank(voter1);
+        governor.castVote(proposalId, 1);
+        vm.prank(voter2);
+        governor.castVote(proposalId, 1);
+
+        vm.roll(block.number + governor.votingPeriod() + 1);
+
+        // Proposal succeeded but NOT queued — execute should revert
+        assertEq(
+            uint256(governor.state(proposalId)),
+            uint256(IGovernor.ProposalState.Succeeded)
+        );
+
+        vm.expectRevert();
+        governor.execute(
+            targets, values, calldatas, keccak256(bytes(description))
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Cannot Execute Before Timelock Delay
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_cannotExecuteBeforeTimelockDelay() public {
+        (
+            address[] memory targets,
+            uint256[] memory values,
+            bytes[] memory calldatas,
+            string memory description
+        ) = _createDummyProposal();
+
+        vm.prank(admin);
+        uint256 proposalId = governor.propose(
+            targets, values, calldatas, description
+        );
+
+        vm.roll(block.number + governor.votingDelay() + 1);
+
+        // Pre-compute proposalId to avoid vm.prank being consumed by hashProposal
+        vm.prank(voter1);
+        governor.castVote(proposalId, 1);
+        vm.prank(voter2);
+        governor.castVote(proposalId, 1);
+
+        vm.roll(block.number + governor.votingPeriod() + 1);
+
+        // Queue the proposal
+        governor.queue(
+            targets, values, calldatas, keccak256(bytes(description))
+        );
+
+        // Try to execute immediately (before timelock delay) — should revert
+        vm.expectRevert();
+        governor.execute(
+            targets, values, calldatas, keccak256(bytes(description))
         );
     }
 }
