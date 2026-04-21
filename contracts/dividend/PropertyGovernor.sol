@@ -84,14 +84,14 @@ contract PropertyGovernor is
 
     // ── Constructor ───────────────────────────────────────────────────
     /**
-     * @param _token         PropertyToken address (implements IVotes)
-     * @param _timelock      TimelockController ALREADY DEPLOYED by Person 1
-     * @param _proposerAdmin Address yang berhak propose (MultiSig address)
+     * @param token_         PropertyToken address (implements IVotes)
+     * @param timelock_      TimelockController ALREADY DEPLOYED by Person 1
+     * @param proposerAdmin_ Address yang berhak propose (MultiSig address)
      */
     constructor(
-        IVotes _token,
-        TimelockController _timelock,
-        address _proposerAdmin
+        IVotes token_,
+        TimelockController timelock_,
+        address proposerAdmin_
     )
         Governor("PropertyGovernor")
         GovernorSettings(
@@ -99,13 +99,14 @@ contract PropertyGovernor is
             36000,  // votingPeriod = ~5 days
             0       // proposalThreshold = 0 (akses dikontrol oleh onlyProposerAdmin)
         )
-        GovernorVotes(_token)
+        GovernorVotes(token_)
         GovernorVotesQuorumFraction(10)  // 10% of total supply must participate
-        GovernorTimelockControl(_timelock)
+        GovernorTimelockControl(timelock_)
     {
-        require(_proposerAdmin != address(0), "Governor: zero proposer admin");
-        proposerAdmin = _proposerAdmin;
+        require(proposerAdmin_ != address(0), "Governor: zero proposer admin");
+        proposerAdmin = proposerAdmin_;
     }
+
 
     // ═══════════════════════════════════════════════════════════════════
     //  Proposal Access Control — Only Admin Can Propose
