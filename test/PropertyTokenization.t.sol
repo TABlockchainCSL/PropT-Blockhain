@@ -515,7 +515,7 @@ contract PropertyTokenizationTest is Test {
         PropertyToken token = _deployTokenSetup();
         vm.expectRevert(
             abi.encodeWithSelector(
-                PropertyToken.RecipientNotKYCVerified.selector,
+                PropertyToken.RecipientNotAuthorized.selector,
                 user3
             )
         );
@@ -531,7 +531,7 @@ contract PropertyTokenizationTest is Test {
         vm.prank(user3);
         vm.expectRevert(
             abi.encodeWithSelector(
-                PropertyToken.SenderNotKYCVerified.selector,
+                PropertyToken.SenderNotAuthorized.selector,
                 user3
             )
         );
@@ -599,7 +599,7 @@ contract PropertyTokenizationTest is Test {
 
     function _defaultParams()
         internal
-        pure
+        view
         returns (IPropertyTokenFactory.CreateTokenParams memory)
     {
         return
@@ -611,7 +611,8 @@ contract PropertyTokenizationTest is Test {
                 propertyAddress: "Jl. Jend. Sudirman No. 1, Jakarta",
                 totalValue: 100 ether,
                 ipfsDocumentURI: "ipfs://QmExamplePropertyDocHash",
-                requiredKYCLevel: KYC_LEVEL_BASIC
+                requiredKYCLevel: KYC_LEVEL_BASIC,
+                tokenOwner: owner
             });
     }
 
@@ -754,7 +755,8 @@ contract PropertyTokenizationTest is Test {
                 propertyAddress: "Jl. Seminyak No. 10, Bali",
                 totalValue: 1000 ether,
                 ipfsDocumentURI: "ipfs://QmVillaBaliDocs",
-                requiredKYCLevel: KYC_LEVEL_BASIC
+                requiredKYCLevel: KYC_LEVEL_BASIC,
+                tokenOwner: owner
             })
         );
 
@@ -977,7 +979,8 @@ contract PropertyTokenizationTest is Test {
                 propertyAddress: "Jl. Jend. Sudirman No. 1, Jakarta Selatan",
                 totalValue: 500 ether,
                 ipfsDocumentURI: "ipfs://QmPropertyDocumentHash12345",
-                requiredKYCLevel: KYC_LEVEL_BASIC
+                requiredKYCLevel: KYC_LEVEL_BASIC,
+                tokenOwner: owner
             })
         );
 
@@ -1011,7 +1014,7 @@ contract PropertyTokenizationTest is Test {
         vm.prank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                PropertyToken.RecipientNotKYCVerified.selector,
+                PropertyToken.RecipientNotAuthorized.selector,
                 user3
             )
         );
@@ -1047,7 +1050,8 @@ contract PropertyTokenizationTest is Test {
                 propertyAddress: "Jl. A No. 1",
                 totalValue: 100 ether,
                 ipfsDocumentURI: "ipfs://A",
-                requiredKYCLevel: 1
+                requiredKYCLevel: 1,
+                tokenOwner: owner
             })
         );
         address tokenAAddr = factory.getTokenByPropertyId(1);
@@ -1063,7 +1067,8 @@ contract PropertyTokenizationTest is Test {
                 propertyAddress: "Jl. B No. 2",
                 totalValue: 200 ether,
                 ipfsDocumentURI: "ipfs://B",
-                requiredKYCLevel: 2
+                requiredKYCLevel: 2,
+                tokenOwner: owner
             })
         );
         address tokenBAddr = factory.getTokenByPropertyId(2);
@@ -1108,7 +1113,8 @@ contract PropertyTokenizationTest is Test {
                 propertyAddress: "Jl. Lifecycle No. 1",
                 totalValue: 500 ether,
                 ipfsDocumentURI: "ipfs://lifecycle",
-                requiredKYCLevel: 1
+                requiredKYCLevel: 1,
+                tokenOwner: owner
             })
         );
         address tokenAddr = factory.getTokenByPropertyId(1);

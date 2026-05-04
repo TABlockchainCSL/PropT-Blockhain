@@ -22,10 +22,12 @@ import "./IKYCRegistry.sol";
 interface IPropertyToken is IERC20, IVotes, IERC20Permit {
     event TokensMinted(address indexed to, uint256 amount);
     event TokensBurned(address indexed from, uint256 amount);
+    event PauserUpdated(address indexed oldPauser, address indexed newPauser);
 
-    error SenderNotKYCVerified(address sender);
-    error RecipientNotKYCVerified(address recipient);
+    error SenderNotAuthorized(address sender);
+    error RecipientNotAuthorized(address recipient);
     error InsufficientKYCLevel(address user, uint8 required, uint8 actual);
+    error NotPauserOrOwner(address caller);
 
     /// @notice KYCRegistry address used by this token
     function kycRegistry() external view returns (IKYCRegistry);
@@ -36,12 +38,18 @@ interface IPropertyToken is IERC20, IVotes, IERC20Permit {
     /// @notice Minimum KYC level required to transfer (1 = Basic, 2 = Enhanced)
     function requiredKYCLevel() external view returns (uint8);
 
+    /// @notice Pauser address authorised for emergency pause without governance delay
+    function pauser() external view returns (address);
+
     /// @notice Mint additional tokens (owner only)
     function mint(address to, uint256 amount) external;
 
-    /// @notice Pause all transfers
+    /// @notice Pause all transfers (callable by pauser or owner)
     function pause() external;
 
-    /// @notice Resume transfers
+    /// @notice Resume transfers (owner only)
     function unpause() external;
+
+    /// @notice Update the pauser address (owner only)
+    function setPauser(address newPauser) external;
 }

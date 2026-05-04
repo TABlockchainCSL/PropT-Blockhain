@@ -36,6 +36,9 @@ contract KYCRegistry is
     address[] private _verifiedAddresses;
     mapping(address => uint256) private _verifiedIndex; // 1-indexed, 0 means not in the array
 
+    // Approved contract addresses (DEX pools, marketplaces, etc.)
+    mapping(address => bool) private _approvedContracts;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -178,11 +181,55 @@ contract KYCRegistry is
         return _verifiedAddresses;
     }
 
+    // --- Approved Contracts (DEX, marketplace, etc.) ---
+
+    /**
+     * @notice Approve a contract address for token transfers.
+     *         Used for DEX pools, marketplaces, and other smart contracts
+     *         that need to hold/transfer tokens but cannot undergo KYC
+     *         (they are not natural or legal persons).
+     * @param contractAddr Address of the contract to approve
+     */
+    function addApprovedContract(
+        address contractAddr
+    ) external onlyRole(KYC_ADMIN_ROLE) {
+        if (contractAddr == address(0)) revert ZeroAddress();
+        if (contractAddr.code.length == 0) revert NotAContract(contractAddr);
+        if (_approvedContracts[contractAddr])
+            revert ContractAlreadyApproved(contractAddr);
+
+        _approvedContracts[contractAddr] = true;
+
+        emit ContractApproved(contractAddr, msg.sender);
+    }
+
+    /**
+     * @notice Revoke approval for a contract address.
+     * @param contractAddr Address of the contract to revoke
+     */
+    function removeApprovedContract(
+        address contractAddr
+    ) external onlyRole(KYC_ADMIN_ROLE) {
+        if (contractAddr == address(0)) revert ZeroAddress();
+        if (!_approvedContracts[contractAddr])
+            revert ContractNotApproved(contractAddr);
+
+        _approvedContracts[contractAddr] = false;
+
+        emit ContractRemoved(contractAddr, msg.sender);
+    }
+
+    /// @notice Check if a contract address is approved
+    function isApprovedContract(address addr) external view returns (bool) {
+        return _approvedContracts[addr];
+    }
+
     /// @dev Only DEFAULT_ADMIN_ROLE can authorize upgrades
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     /// @dev Reserved storage gap for future upgrades
-    uint256[45] private __gap;
+    uint256[44] private __gap;
 }
+
