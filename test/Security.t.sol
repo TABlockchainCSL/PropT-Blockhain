@@ -93,7 +93,8 @@ contract SecurityTest is Test {
                 propertyAddress: "Jl. Test No. 1",
                 totalValue: 100 ether,
                 ipfsDocumentURI: "ipfs://test",
-                requiredKYCLevel: 1
+                requiredKYCLevel: 1,
+                tokenOwner: owner
             })
         );
         token = PropertyToken(tokenAddress);
@@ -146,7 +147,8 @@ contract SecurityTest is Test {
                 propertyAddress: "Jl. Fake No. 1",
                 totalValue: 10 ether,
                 ipfsDocumentURI: "ipfs://fake",
-                requiredKYCLevel: 1
+                requiredKYCLevel: 1,
+                tokenOwner: owner
             })
         );
     }
@@ -186,7 +188,7 @@ contract SecurityTest is Test {
     function test_KYCBypass_nonKYCCannotReceive() public {
         vm.expectRevert(
             abi.encodeWithSelector(
-                PropertyToken.RecipientNotKYCVerified.selector,
+                PropertyToken.RecipientNotAuthorized.selector,
                 attacker
             )
         );
@@ -201,7 +203,7 @@ contract SecurityTest is Test {
         vm.prank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                PropertyToken.SenderNotKYCVerified.selector,
+                PropertyToken.SenderNotAuthorized.selector,
                 user1
             )
         );
@@ -218,7 +220,8 @@ contract SecurityTest is Test {
                 propertyAddress: "Jl. Premium No. 1",
                 totalValue: 200 ether,
                 ipfsDocumentURI: "ipfs://premium",
-                requiredKYCLevel: 2
+                requiredKYCLevel: 2,
+                tokenOwner: owner
             })
         );
         PropertyToken premiumToken = PropertyToken(premiumAddr);

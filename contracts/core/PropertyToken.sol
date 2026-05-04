@@ -32,14 +32,24 @@ contract PropertyToken is
     IKYCRegistry public kycRegistry;
     uint256 public propertyId;
     uint8 public requiredKYCLevel;
+    address public pauser;
 
     event TokensMinted(address indexed to, uint256 amount);
     event TokensBurned(address indexed from, uint256 amount);
+    event PauserUpdated(address indexed oldPauser, address indexed newPauser);
 
-    error SenderNotKYCVerified(address sender);
-    error RecipientNotKYCVerified(address recipient);
+    error SenderNotAuthorized(address sender);
+    error RecipientNotAuthorized(address recipient);
     error InsufficientKYCLevel(address user, uint8 required, uint8 actual);
     error InvalidRequiredKYCLevel(uint8 level);
+    error NotPauserOrOwner(address caller);
+
+    modifier onlyPauserOrOwner() {
+        if (msg.sender != pauser && msg.sender != owner()) {
+            revert NotPauserOrOwner(msg.sender);
+        }
+        _;
+    }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -85,8 +95,11 @@ contract PropertyToken is
     }
 
     /**
-     * @dev Override _update to enforce KYC checks on every transfer.
-     *      Minting (from == 0) and burning (to == 0) skip the KYC check.
+     * @dev Override _update to enforce authorization on every transfer.
+     *      Minting (from == 0) and burning (to == 0) skip the check.
+     *      Each address must be either:
+     *        - A KYC-verified human (EOA) with sufficient level, OR
+     *        - An admin-approved contract (DEX pool, marketplace, etc.)
      *      Also updates voting checkpoints via ERC20Votes.
      */
     function _update(
@@ -101,36 +114,37 @@ contract PropertyToken is
             ERC20VotesUpgradeable
         )
     {
-        // Only check KYC for regular transfers (not mint/burn)
+        // Only check authorization for regular transfers (not mint/burn)
         if (from != address(0) && to != address(0)) {
-            // getKYCLevel returns 0 for unverified users, so we can
-            // skip the separate isVerified() call (2 calls instead of 4)
-            uint8 senderLevel = kycRegistry.getKYCLevel(from);
-            if (senderLevel == 0) {
-                revert SenderNotKYCVerified(from);
-            }
-            if (senderLevel < requiredKYCLevel) {
-                revert InsufficientKYCLevel(
-                    from,
-                    requiredKYCLevel,
-                    senderLevel
-                );
-            }
-
-            uint8 recipientLevel = kycRegistry.getKYCLevel(to);
-            if (recipientLevel == 0) {
-                revert RecipientNotKYCVerified(to);
-            }
-            if (recipientLevel < requiredKYCLevel) {
-                revert InsufficientKYCLevel(
-                    to,
-                    requiredKYCLevel,
-                    recipientLevel
-                );
-            }
+            _checkAuthorized(from, true);
+            _checkAuthorized(to, false);
         }
 
         super._update(from, to, value);
+    }
+
+    /**
+     * @dev Check if an address is authorized to send/receive tokens.
+     *      Authorized means: KYC-verified with sufficient level, OR approved contract.
+     */
+    function _checkAuthorized(address addr, bool isSender) internal view {
+        // Fast path: check if it's an approved contract (DEX, marketplace)
+        if (kycRegistry.isApprovedContract(addr)) {
+            return;
+        }
+
+        // Otherwise, must be a KYC-verified user with sufficient level
+        uint8 level = kycRegistry.getKYCLevel(addr);
+        if (level == 0) {
+            if (isSender) {
+                revert SenderNotAuthorized(addr);
+            } else {
+                revert RecipientNotAuthorized(addr);
+            }
+        }
+        if (level < requiredKYCLevel) {
+            revert InsufficientKYCLevel(addr, requiredKYCLevel, level);
+        }
     }
 
     /// @dev Resolves the nonces conflict between ERC20Permit and Nonces
@@ -151,16 +165,25 @@ contract PropertyToken is
         emit TokensMinted(to, amount);
     }
 
-    /// @notice Pause all transfers (for emergencies)
-    function pause() external onlyOwner {
+    /// @notice Pause all transfers (for emergencies).
+    ///         Can be called by pauser (fast, no delay) or owner (via Timelock).
+    function pause() external onlyPauserOrOwner {
         _pause();
     }
 
-    /// @notice Resume transfers
+    /// @notice Resume transfers. Only owner (via Timelock) can unpause.
     function unpause() external onlyOwner {
         _unpause();
     }
 
+    /// @notice Set the pauser address. Only owner (via Timelock) can change.
+    /// @param _pauser New pauser address (can be EOA or fast multisig)
+    function setPauser(address _pauser) external onlyOwner {
+        address oldPauser = pauser;
+        pauser = _pauser;
+        emit PauserUpdated(oldPauser, _pauser);
+    }
+
     /// @dev Reserved storage gap for future upgrades
-    uint256[47] private __gap;
+    uint256[46] private __gap;
 }

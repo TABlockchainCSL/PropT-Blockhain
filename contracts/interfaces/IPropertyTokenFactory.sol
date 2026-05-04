@@ -15,6 +15,7 @@ interface IPropertyTokenFactory {
         uint256 totalValue;
         string ipfsDocumentURI;
         uint8 requiredKYCLevel;
+        address tokenOwner;
     }
 
     event PropertyTokenCreated(

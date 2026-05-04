@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -18,16 +18,18 @@ import "./PropertyToken.sol";
  *         One property = one ERC-20 token (RealT model).
  * @dev - Upgradeable via UUPS proxy pattern.
  *      - Deploys BeaconProxy instances, so upgrading the beacon updates ALL tokens.
- *      - Still imports PropertyToken.sol for abi.encodeCall (no bytecode bloat
- *        since we don't use `new PropertyToken()`).
+ *      - Uses AccessControl: OPERATOR_ROLE for daily createPropertyToken,
+ *        DEFAULT_ADMIN_ROLE (Timelock) for upgrades and role management.
  */
 contract PropertyTokenFactory is
     Initializable,
-    OwnableUpgradeable,
+    AccessControlUpgradeable,
     ReentrancyGuardTransient,
     UUPSUpgradeable,
     IPropertyTokenFactory
 {
+    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+
     IKYCRegistry public kycRegistry;
     IPropertyRegistry public propertyRegistry;
     address public tokenBeacon;
@@ -59,7 +61,11 @@ contract PropertyTokenFactory is
         if (_propertyRegistry == address(0)) revert ZeroAddress();
         if (_tokenBeacon == address(0)) revert ZeroAddress();
 
-        __Ownable_init(msg.sender);
+        __AccessControl_init();
+
+        // Bootstrap: deployer gets both roles, then transfers via deploy script
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(OPERATOR_ROLE, msg.sender);
 
         kycRegistry = IKYCRegistry(_kycRegistry);
         propertyRegistry = IPropertyRegistry(_propertyRegistry);
@@ -76,7 +82,7 @@ contract PropertyTokenFactory is
         CreateTokenParams calldata params
     )
         external
-        onlyOwner
+        onlyRole(OPERATOR_ROLE)
         nonReentrant
         returns (address tokenAddress, uint256 propertyId)
     {
@@ -94,7 +100,7 @@ contract PropertyTokenFactory is
                 propertyId,
                 address(kycRegistry),
                 params.requiredKYCLevel,
-                msg.sender
+                params.tokenOwner
             )
         );
 
@@ -155,10 +161,10 @@ contract PropertyTokenFactory is
             revert EmptyString("ipfsDocumentURI");
     }
 
-    /// @dev Only owner can authorize upgrades
+    /// @dev Only DEFAULT_ADMIN_ROLE (Timelock) can authorize upgrades
     function _authorizeUpgrade(
         address newImplementation
-    ) internal override onlyOwner {}
+    ) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     /// @dev Reserved storage gap for future upgrades
     uint256[44] private __gap;
