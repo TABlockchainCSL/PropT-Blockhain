@@ -6,9 +6,9 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 
-import "../contracts/core/KYCRegistry.sol";
-import "../contracts/core/PropertyRegistry.sol";
-import "../contracts/core/PropertyToken.sol";
+import "../../contracts/core/KYCRegistry.sol";
+import "../../contracts/core/PropertyRegistry.sol";
+import "../../contracts/core/PropertyToken.sol";
 import "./handlers/Handler.sol";
 
 /// @title InvariantTest
@@ -35,8 +35,9 @@ contract InvariantTest is Test {
         seedActor2 = makeAddr("invSeed2");
 
         KYCRegistry kycImpl = new KYCRegistry();
-        kycRegistry =
-            KYCRegistry(address(new ERC1967Proxy(address(kycImpl), abi.encodeCall(KYCRegistry.initialize, ()))));
+        kycRegistry = KYCRegistry(
+            address(new ERC1967Proxy(address(kycImpl), abi.encodeCall(KYCRegistry.initialize, ())))
+        );
 
         PropertyRegistry regImpl = new PropertyRegistry();
         propertyRegistry = PropertyRegistry(
@@ -49,7 +50,8 @@ contract InvariantTest is Test {
         BeaconProxy proxy = new BeaconProxy(
             address(beacon),
             abi.encodeCall(
-                PropertyToken.initialize, ("Invariant Token", "IVT", INITIAL_SUPPLY, 1, address(kycRegistry), admin)
+                PropertyToken.initialize,
+                ("Invariant Token", "IVT", INITIAL_SUPPLY, 1, address(kycRegistry), admin)
             )
         );
         token = PropertyToken(address(proxy));
@@ -81,29 +83,25 @@ contract InvariantTest is Test {
         excludeContract(address(beacon));
     }
 
-    // -------------------------------------------------------------------
+    // =========================================================================
     //  Invariant 1: no value creation or destruction outside mint/burn
-    // -------------------------------------------------------------------
+    // =========================================================================
     /// @notice totalSupply must always equal the sum of balances held by
-    ///         admin + every actor tracked by the handler. Mints increase
-    ///         totalSupply; no transfer may create or destroy tokens silently.
+    ///         admin + every actor tracked by the handler.
     function invariant_TotalSupplyEqualsBalanceSum() external {
         uint256 sum;
-
         address[] memory holders = handler.getHolders();
         for (uint256 i = 0; i < holders.length; i++) {
             sum += token.balanceOf(holders[i]);
         }
-
         assertEq(sum, token.totalSupply(), "totalSupply mismatch across tracked holders");
     }
 
-    // -------------------------------------------------------------------
+    // =========================================================================
     //  Invariant 2: KYC bookkeeping consistent
-    // -------------------------------------------------------------------
-    /// @notice The verified-user count reported by KYCRegistry must equal
-    ///         the length of the underlying address array, and every
-    ///         address in that array must still have a non-zero level.
+    // =========================================================================
+    /// @notice The verified-user count must equal the length of the address array,
+    ///         and every address in that array must still be verified.
     function invariant_VerifiedCountConsistent() external {
         uint256 reported = kycRegistry.getVerifiedUserCount();
         address[] memory verified = kycRegistry.getVerifiedUsers();
@@ -114,36 +112,35 @@ contract InvariantTest is Test {
         }
     }
 
-    // -------------------------------------------------------------------
+    // =========================================================================
     //  Invariant 3: property IDs strictly monotonic
-    // -------------------------------------------------------------------
-    /// @notice getNextPropertyId() starts at 1 and never decreases; the
-    ///         observed value must match the initial value plus the number
-    ///         of successful registrations the handler has recorded.
+    // =========================================================================
+    /// @notice getNextPropertyId() starts at 1 and never decreases.
     function invariant_PropertyIdMonotonic() external {
         uint256 next = propertyRegistry.getNextPropertyId();
         assertGe(next, 1, "nextPropertyId must start >= 1");
-        assertEq(next, handler.ghostInitialNextPropertyId() + handler.ghostRegistered(), "propertyId drift");
+        assertEq(
+            next,
+            handler.ghostInitialNextPropertyId() + handler.ghostRegistered(),
+            "propertyId drift"
+        );
     }
 
-    // -------------------------------------------------------------------
-    //  Invariant 4: ownership never escapes admin (governance boundary)
-    // -------------------------------------------------------------------
-    /// @notice Owner of the PropertyToken never changes during fuzzed runs;
-    ///         only a deliberate transferOwnership call (not exposed to the
-    ///         handler) could move it.
+    // =========================================================================
+    //  Invariant 4: ownership never escapes admin
+    // =========================================================================
+    /// @notice Owner of the PropertyToken never changes during fuzzed runs.
     function invariant_OwnerUnchanged() external {
         assertEq(token.owner(), admin, "token ownership drifted");
     }
 
-    /// @dev Reported in the invariant summary so we can see the fuzzer was
-    ///      actually exercising each action.
+    // =========================================================================
+    //  Invariant 5: call summary — fuzzer exercises all five actions
+    // =========================================================================
     function invariant_callSummary() external {
-        // No assertion here; just force the invariant runner to evaluate
-        // `handler` state so ghost counters are captured in traces.
         assertGe(
-            handler.callsTransfer() + handler.callsAddUser() + handler.callsRemoveUser() + handler.callsMint()
-                + handler.callsRegister(),
+            handler.callsTransfer() + handler.callsAddUser() + handler.callsRemoveUser()
+                + handler.callsMint() + handler.callsRegister(),
             0
         );
     }
