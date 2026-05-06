@@ -5,9 +5,9 @@ import "forge-std/StdUtils.sol";
 import "forge-std/StdCheats.sol";
 import "forge-std/Base.sol";
 
-import "../../contracts/core/KYCRegistry.sol";
-import "../../contracts/core/PropertyRegistry.sol";
-import "../../contracts/core/PropertyToken.sol";
+import "../../../contracts/core/KYCRegistry.sol";
+import "../../../contracts/core/PropertyRegistry.sol";
+import "../../../contracts/core/PropertyToken.sol";
 
 /// @title InvariantHandler
 /// @notice Handler that mediates fuzzer calls to the core contracts so
@@ -95,7 +95,8 @@ contract InvariantHandler is CommonBase, StdCheats, StdUtils {
     /// @dev Uses a salted pseudo-random address so we explore many actors.
     function addUser(uint256 seed) external {
         callsAddUser++;
-        address a = address(uint160(uint256(keccak256(abi.encode(seed, "actor", _actors.length)))));
+        address a =
+            address(uint160(uint256(keccak256(abi.encode(seed, "actor", _actors.length)))));
         if (a == address(0) || uint160(a) < 0x20) return;
         if (a == admin || a == address(this)) return;
         if (a == address(token) || a == address(kycRegistry)) return;
@@ -167,15 +168,14 @@ contract InvariantHandler is CommonBase, StdCheats, StdUtils {
         callsRegister++;
         totalValue = bound(totalValue, 1, type(uint128).max);
 
-        address tokenAddr = address(uint160(uint256(keccak256(abi.encode(seed, "prop", ghostRegistered)))));
+        address tokenAddr =
+            address(uint160(uint256(keccak256(abi.encode(seed, "prop", ghostRegistered)))));
         if (tokenAddr == address(0)) return;
 
         vm.prank(admin);
         try propertyRegistry.registerProperty(
             "Inv Property", "Jl. Invariant No. 1", totalValue, "ipfs://inv", tokenAddr
-        ) returns (
-            uint256 id
-        ) {
+        ) returns (uint256 id) {
             ghostRegistered++;
             if (id > ghostLastPropertyId) {
                 ghostLastPropertyId = id;
