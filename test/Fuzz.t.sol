@@ -16,8 +16,8 @@ import "../contracts/interfaces/IPropertyTokenFactory.sol";
 
 /// @title FuzzTest
 /// @notice Property-based fuzz tests covering input space that unit tests miss:
-///         KYC level enforcement, transfer bounds, batch size limits,
-///         access control, approved contracts, and property value range.
+///         transfer bounds, access control, approved contracts,
+///         and property value range.
 contract FuzzTest is Test {
     address internal admin;
     address internal user1;
@@ -28,32 +28,18 @@ contract FuzzTest is Test {
     PropertyTokenFactory internal factory;
     UpgradeableBeacon internal beacon;
 
-    uint8 internal constant KYC_LEVEL_BASIC = 1;
-    uint8 internal constant KYC_LEVEL_ENHANCED = 2;
-
     function setUp() public virtual {
         admin = address(this);
         user1 = makeAddr("fuzzUser1");
         user2 = makeAddr("fuzzUser2");
 
         KYCRegistry kycImpl = new KYCRegistry();
-        kycRegistry = KYCRegistry(
-            address(
-                new ERC1967Proxy(
-                    address(kycImpl),
-                    abi.encodeCall(KYCRegistry.initialize, ())
-                )
-            )
-        );
+        kycRegistry =
+            KYCRegistry(address(new ERC1967Proxy(address(kycImpl), abi.encodeCall(KYCRegistry.initialize, ()))));
 
         PropertyRegistry regImpl = new PropertyRegistry();
         propertyRegistry = PropertyRegistry(
-            address(
-                new ERC1967Proxy(
-                    address(regImpl),
-                    abi.encodeCall(PropertyRegistry.initialize, ())
-                )
-            )
+            address(new ERC1967Proxy(address(regImpl), abi.encodeCall(PropertyRegistry.initialize, ())))
         );
 
         PropertyToken tokenImpl = new PropertyToken();
@@ -66,41 +52,23 @@ contract FuzzTest is Test {
                     address(factoryImpl),
                     abi.encodeCall(
                         PropertyTokenFactory.initialize,
-                        (
-                            address(kycRegistry),
-                            address(propertyRegistry),
-                            address(beacon)
-                        )
+                        (address(kycRegistry), address(propertyRegistry), address(beacon))
                     )
                 )
             )
         );
 
-        propertyRegistry.grantRole(
-            propertyRegistry.REGISTRY_ADMIN_ROLE(),
-            address(factory)
-        );
+        propertyRegistry.grantRole(propertyRegistry.REGISTRY_ADMIN_ROLE(), address(factory));
     }
 
     // --- Helpers ---
 
-    function _deployToken(
-        uint8 requiredLevel,
-        address tokenOwner
-    ) internal returns (PropertyToken token) {
+    function _deployToken() internal returns (PropertyToken token) {
         BeaconProxy proxy = new BeaconProxy(
             address(beacon),
             abi.encodeCall(
                 PropertyToken.initialize,
-                (
-                    "Fuzz Token",
-                    "FZT",
-                    1_000 ether,
-                    uint256(uint160(address(this))),
-                    address(kycRegistry),
-                    requiredLevel,
-                    tokenOwner
-                )
+                ("Fuzz Token", "FZT", 1_000 ether, uint256(uint160(address(this))), address(kycRegistry), admin)
             )
         );
         return PropertyToken(address(proxy));
@@ -119,55 +87,6 @@ contract FuzzTest is Test {
     }
 
     // -------------------------------------------------------------------
-    //  1. KYC level enforcement — accepts at-or-above required level
-    // -------------------------------------------------------------------
-    /// @notice If both parties hold KYC level >= token.requiredKYCLevel,
-    ///         a transfer of the fuzzed amount must succeed.
-    function testFuzz_KYCLevel_AcceptsAtOrAbove(
-        uint8 userLevel,
-        uint8 reqLevel,
-        uint256 amount
-    ) public {
-        reqLevel = uint8(bound(reqLevel, KYC_LEVEL_BASIC, KYC_LEVEL_ENHANCED));
-        userLevel = uint8(bound(userLevel, reqLevel, KYC_LEVEL_ENHANCED));
-        amount = bound(amount, 1, 1_000 ether);
-
-        PropertyToken token = _deployToken(reqLevel, admin);
-        kycRegistry.addUser(admin, userLevel);
-        kycRegistry.addUser(user1, userLevel);
-
-        bool ok = token.transfer(user1, amount);
-        assertTrue(ok, "transfer must succeed for level >= requirement");
-        assertEq(token.balanceOf(user1), amount);
-    }
-
-    // -------------------------------------------------------------------
-    //  2. KYC level enforcement — rejects when user level < required
-    // -------------------------------------------------------------------
-    /// @notice A user with level below requiredKYCLevel must never receive tokens.
-    function testFuzz_KYCLevel_RejectsBelowRequired(
-        uint8 userLevel,
-        uint256 amount
-    ) public {
-        userLevel = uint8(bound(userLevel, KYC_LEVEL_BASIC, KYC_LEVEL_BASIC));
-        amount = bound(amount, 1, 1_000 ether);
-
-        PropertyToken token = _deployToken(KYC_LEVEL_ENHANCED, admin);
-        kycRegistry.addUser(admin, KYC_LEVEL_ENHANCED);
-        kycRegistry.addUser(user1, userLevel);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PropertyToken.InsufficientKYCLevel.selector,
-                user1,
-                KYC_LEVEL_ENHANCED,
-                userLevel
-            )
-        );
-        token.transfer(user1, amount);
-    }
-
-    // -------------------------------------------------------------------
     //  3. Transfer must respect balance
     // -------------------------------------------------------------------
     /// @notice Any transfer amount strictly greater than the sender's balance
@@ -175,9 +94,9 @@ contract FuzzTest is Test {
     function testFuzz_Transfer_RespectsBalance(uint256 amount) public {
         amount = bound(amount, 1_001 ether, type(uint128).max);
 
-        PropertyToken token = _deployToken(KYC_LEVEL_BASIC, admin);
-        kycRegistry.addUser(admin, KYC_LEVEL_BASIC);
-        kycRegistry.addUser(user1, KYC_LEVEL_BASIC);
+        PropertyToken token = _deployToken();
+        kycRegistry.addUser(admin);
+        kycRegistry.addUser(user1);
 
         vm.expectRevert();
         token.transfer(user1, amount);
@@ -187,56 +106,16 @@ contract FuzzTest is Test {
     }
 
     // -------------------------------------------------------------------
-    //  4. Batch size bounded by MAX_BATCH_SIZE
-    // -------------------------------------------------------------------
-    /// @notice batchAddUsers must accept any batch <= MAX_BATCH_SIZE and
-    ///         reject any batch > MAX_BATCH_SIZE with BatchTooLarge.
-    function testFuzz_BatchAddUsers_BoundedByMax(uint8 count) public {
-        count = uint8(bound(count, 1, 150));
-
-        address[] memory users = new address[](count);
-        uint8[] memory levels = new uint8[](count);
-        for (uint256 i = 0; i < count; i++) {
-            users[i] = address(
-                uint160(uint256(keccak256(abi.encode(i, count))))
-            );
-            levels[i] = KYC_LEVEL_BASIC;
-        }
-
-        uint256 maxBatch = kycRegistry.MAX_BATCH_SIZE();
-
-        if (count > maxBatch) {
-            vm.expectRevert(
-                abi.encodeWithSelector(
-                    IKYCRegistry.BatchTooLarge.selector,
-                    count,
-                    maxBatch
-                )
-            );
-            kycRegistry.batchAddUsers(users, levels);
-            assertEq(kycRegistry.getVerifiedUserCount(), 0);
-        } else {
-            kycRegistry.batchAddUsers(users, levels);
-            assertEq(kycRegistry.getVerifiedUserCount(), count);
-        }
-    }
-
-    // -------------------------------------------------------------------
     //  5. Access control — any non-admin caller must be rejected
     // -------------------------------------------------------------------
     /// @notice addUser must revert for any caller that does not hold
     ///         KYC_ADMIN_ROLE, regardless of the target address or level.
-    function testFuzz_AddUser_RejectsAnyNonAdmin(
-        address caller,
-        uint8 level
-    ) public {
+    function testFuzz_AddUser_RejectsAnyNonAdmin(address caller) public {
         vm.assume(_isSafeActor(caller));
         vm.assume(!kycRegistry.hasRole(kycRegistry.KYC_ADMIN_ROLE(), caller));
-        level = uint8(bound(level, KYC_LEVEL_BASIC, KYC_LEVEL_ENHANCED));
-
         vm.prank(caller);
         vm.expectRevert();
-        kycRegistry.addUser(user1, level);
+        kycRegistry.addUser(user1);
 
         assertFalse(kycRegistry.isVerified(user1));
     }
@@ -249,8 +128,8 @@ contract FuzzTest is Test {
     function testFuzz_ApprovedContract_TransferAllowed(uint256 amount) public {
         amount = bound(amount, 1, 1_000 ether);
 
-        PropertyToken token = _deployToken(KYC_LEVEL_BASIC, admin);
-        kycRegistry.addUser(admin, KYC_LEVEL_BASIC);
+        PropertyToken token = _deployToken();
+        kycRegistry.addUser(admin);
 
         // Deploy a throwaway contract to serve as approved recipient.
         MockApprovedContract poolMock = new MockApprovedContract();
@@ -268,31 +147,20 @@ contract FuzzTest is Test {
     // -------------------------------------------------------------------
     /// @notice registerProperty must accept any non-zero totalValue and
     ///         produce a strictly monotonic propertyId.
-    function testFuzz_RegisterProperty_AcceptsAnyNonZero(
-        uint256 totalValue
-    ) public {
+    function testFuzz_RegisterProperty_AcceptsAnyNonZero(uint256 totalValue) public {
         totalValue = bound(totalValue, 1, type(uint128).max);
 
         uint256 idBefore = propertyRegistry.getNextPropertyId();
-        address tokenMock = address(
-            uint160(uint256(keccak256(abi.encode(totalValue))))
-        );
+        address tokenMock = address(uint160(uint256(keccak256(abi.encode(totalValue)))));
         vm.assume(tokenMock != address(0));
 
-        uint256 assignedId = propertyRegistry.registerProperty(
-            "Fuzz Property",
-            "Jl. Fuzz No. 1",
-            totalValue,
-            "ipfs://fuzz",
-            tokenMock
-        );
+        uint256 assignedId =
+            propertyRegistry.registerProperty("Fuzz Property", "Jl. Fuzz No. 1", totalValue, "ipfs://fuzz", tokenMock);
 
         assertEq(assignedId, idBefore);
         assertEq(propertyRegistry.getNextPropertyId(), idBefore + 1);
 
-        IPropertyRegistry.Property memory prop = propertyRegistry.getProperty(
-            assignedId
-        );
+        IPropertyRegistry.Property memory prop = propertyRegistry.getProperty(assignedId);
         assertEq(prop.totalValue, totalValue);
         assertTrue(prop.isActive);
     }

@@ -26,7 +26,7 @@ interface IPropertyToken is IERC20, IVotes, IERC20Permit {
 
     error SenderNotAuthorized(address sender);
     error RecipientNotAuthorized(address recipient);
-    error InsufficientKYCLevel(address user, uint8 required, uint8 actual);
+
     error NotPauserOrOwner(address caller);
 
     /// @notice KYCRegistry address used by this token
@@ -34,9 +34,6 @@ interface IPropertyToken is IERC20, IVotes, IERC20Permit {
 
     /// @notice Property ID in the PropertyRegistry
     function propertyId() external view returns (uint256);
-
-    /// @notice Minimum KYC level required to transfer (1 = Basic, 2 = Enhanced)
-    function requiredKYCLevel() external view returns (uint8);
 
     /// @notice Pauser address authorised for emergency pause without governance delay
     function pauser() external view returns (address);

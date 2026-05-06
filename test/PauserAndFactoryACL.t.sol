@@ -32,30 +32,21 @@ contract PauserTest is Test {
 
         // Deploy KYCRegistry
         KYCRegistry kycImpl = new KYCRegistry();
-        ERC1967Proxy kycProxy = new ERC1967Proxy(
-            address(kycImpl),
-            abi.encodeCall(KYCRegistry.initialize, ())
-        );
+        ERC1967Proxy kycProxy = new ERC1967Proxy(address(kycImpl), abi.encodeCall(KYCRegistry.initialize, ()));
         kycRegistry = KYCRegistry(address(kycProxy));
 
         // Deploy PropertyToken via beacon
         PropertyToken tokenImpl = new PropertyToken();
-        UpgradeableBeacon beacon = new UpgradeableBeacon(
-            address(tokenImpl),
-            owner
-        );
+        UpgradeableBeacon beacon = new UpgradeableBeacon(address(tokenImpl), owner);
         BeaconProxy proxy = new BeaconProxy(
             address(beacon),
-            abi.encodeCall(
-                PropertyToken.initialize,
-                ("Test Token", "TST", 1000 ether, 1, address(kycRegistry), 1, owner)
-            )
+            abi.encodeCall(PropertyToken.initialize, ("Test Token", "TST", 1000 ether, 1, address(kycRegistry), owner))
         );
         token = PropertyToken(address(proxy));
 
         // KYC users
-        kycRegistry.addUser(owner, 2);
-        kycRegistry.addUser(user1, 1);
+        kycRegistry.addUser(owner);
+        kycRegistry.addUser(user1);
 
         // Set pauser
         token.setPauser(pauser);
@@ -74,12 +65,7 @@ contract PauserTest is Test {
 
     function test_Pauser_attackerCannotPause() public {
         vm.prank(attacker);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PropertyToken.NotPauserOrOwner.selector,
-                attacker
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(PropertyToken.NotPauserOrOwner.selector, attacker));
         token.pause();
     }
 
@@ -148,18 +134,12 @@ contract FactoryAccessControlTest is Test {
 
         // Deploy KYCRegistry
         KYCRegistry kycImpl = new KYCRegistry();
-        ERC1967Proxy kycProxy = new ERC1967Proxy(
-            address(kycImpl),
-            abi.encodeCall(KYCRegistry.initialize, ())
-        );
+        ERC1967Proxy kycProxy = new ERC1967Proxy(address(kycImpl), abi.encodeCall(KYCRegistry.initialize, ()));
         kycRegistry = KYCRegistry(address(kycProxy));
 
         // Deploy PropertyRegistry
         PropertyRegistry regImpl = new PropertyRegistry();
-        ERC1967Proxy regProxy = new ERC1967Proxy(
-            address(regImpl),
-            abi.encodeCall(PropertyRegistry.initialize, ())
-        );
+        ERC1967Proxy regProxy = new ERC1967Proxy(address(regImpl), abi.encodeCall(PropertyRegistry.initialize, ()));
         propertyRegistry = PropertyRegistry(address(regProxy));
 
         // Deploy beacon
@@ -171,17 +151,13 @@ contract FactoryAccessControlTest is Test {
         ERC1967Proxy factoryProxy = new ERC1967Proxy(
             address(factoryImpl),
             abi.encodeCall(
-                PropertyTokenFactory.initialize,
-                (address(kycRegistry), address(propertyRegistry), address(beacon))
+                PropertyTokenFactory.initialize, (address(kycRegistry), address(propertyRegistry), address(beacon))
             )
         );
         factory = PropertyTokenFactory(address(factoryProxy));
 
         // Grant REGISTRY_ADMIN to factory
-        propertyRegistry.grantRole(
-            propertyRegistry.REGISTRY_ADMIN_ROLE(),
-            address(factory)
-        );
+        propertyRegistry.grantRole(propertyRegistry.REGISTRY_ADMIN_ROLE(), address(factory));
 
         // Grant OPERATOR_ROLE to operator, revoke from admin
         factory.grantRole(factory.OPERATOR_ROLE(), operator);
@@ -199,7 +175,6 @@ contract FactoryAccessControlTest is Test {
                 propertyAddress: "Jl. Test No. 1",
                 totalValue: 100 ether,
                 ipfsDocumentURI: "ipfs://test",
-                requiredKYCLevel: 1,
                 tokenOwner: admin
             })
         );
@@ -218,7 +193,6 @@ contract FactoryAccessControlTest is Test {
                 propertyAddress: "Jl. Fake No. 1",
                 totalValue: 10 ether,
                 ipfsDocumentURI: "ipfs://fake",
-                requiredKYCLevel: 1,
                 tokenOwner: attacker
             })
         );
@@ -238,7 +212,7 @@ contract FactoryAccessControlTest is Test {
 
     function test_FactoryACL_tokenOwnerIsCorrect() public {
         vm.prank(operator);
-        (address tokenAddr, ) = factory.createPropertyToken(
+        (address tokenAddr,) = factory.createPropertyToken(
             IPropertyTokenFactory.CreateTokenParams({
                 name: "Owner Test",
                 symbol: "OT",
@@ -247,7 +221,6 @@ contract FactoryAccessControlTest is Test {
                 propertyAddress: "Jl. Owner No. 1",
                 totalValue: 50 ether,
                 ipfsDocumentURI: "ipfs://owner",
-                requiredKYCLevel: 1,
                 tokenOwner: admin
             })
         );

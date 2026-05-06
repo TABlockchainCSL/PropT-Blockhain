@@ -11,12 +11,7 @@ pragma solidity ^0.8.24;
  *      multisig tx to itself (onlySelf modifier).
  */
 contract MultiSigWallet {
-    event TransactionSubmitted(
-        uint256 indexed txIndex,
-        address indexed to,
-        uint256 value,
-        bytes data
-    );
+    event TransactionSubmitted(uint256 indexed txIndex, address indexed to, uint256 value, bytes data);
     event TransactionConfirmed(uint256 indexed txIndex, address indexed owner);
     event TransactionRevoked(uint256 indexed txIndex, address indexed owner);
     event TransactionExecuted(uint256 indexed txIndex);
@@ -80,7 +75,7 @@ contract MultiSigWallet {
             revert InvalidThreshold(_threshold, _owners.length);
         }
 
-        for (uint256 i = 0; i < _owners.length; ) {
+        for (uint256 i = 0; i < _owners.length;) {
             address owner = _owners[i];
             if (owner == address(0)) revert ZeroAddress();
             if (isOwner[owner]) revert DuplicateOwner(owner);
@@ -100,32 +95,23 @@ contract MultiSigWallet {
     /// @param _to Target address
     /// @param _value ETH to send (usually 0 for contract calls)
     /// @param _data Encoded function call (abi.encodeCall)
-    function submitTransaction(
-        address _to,
-        uint256 _value,
-        bytes calldata _data
-    ) external onlyOwner returns (uint256 txIndex) {
+    function submitTransaction(address _to, uint256 _value, bytes calldata _data)
+        external
+        onlyOwner
+        returns (uint256 txIndex)
+    {
         txIndex = transactions.length;
 
-        transactions.push(
-            Transaction({
-                to: _to,
-                value: _value,
-                data: _data,
-                executed: false,
-                confirmationCount: 0
-            })
-        );
+        transactions.push(Transaction({to: _to, value: _value, data: _data, executed: false, confirmationCount: 0}));
 
         emit TransactionSubmitted(txIndex, _to, _value, _data);
     }
 
     /// @notice Approve a pending transaction
-    function confirmTransaction(
-        uint256 _txIndex
-    ) external onlyOwner txExists(_txIndex) notExecuted(_txIndex) {
-        if (isConfirmed[_txIndex][msg.sender])
+    function confirmTransaction(uint256 _txIndex) external onlyOwner txExists(_txIndex) notExecuted(_txIndex) {
+        if (isConfirmed[_txIndex][msg.sender]) {
             revert TxAlreadyConfirmed(_txIndex);
+        }
 
         isConfirmed[_txIndex][msg.sender] = true;
         transactions[_txIndex].confirmationCount += 1;
@@ -134,9 +120,7 @@ contract MultiSigWallet {
     }
 
     /// @notice Execute after threshold confirmations reached
-    function executeTransaction(
-        uint256 _txIndex
-    ) external onlyOwner txExists(_txIndex) notExecuted(_txIndex) {
+    function executeTransaction(uint256 _txIndex) external onlyOwner txExists(_txIndex) notExecuted(_txIndex) {
         Transaction storage txn = transactions[_txIndex];
 
         if (txn.confirmationCount < threshold) {
@@ -145,16 +129,14 @@ contract MultiSigWallet {
 
         txn.executed = true;
 
-        (bool success, ) = txn.to.call{value: txn.value}(txn.data);
+        (bool success,) = txn.to.call{value: txn.value}(txn.data);
         if (!success) revert TxExecutionFailed();
 
         emit TransactionExecuted(_txIndex);
     }
 
     /// @notice Take back a confirmation
-    function revokeConfirmation(
-        uint256 _txIndex
-    ) external onlyOwner txExists(_txIndex) notExecuted(_txIndex) {
+    function revokeConfirmation(uint256 _txIndex) external onlyOwner txExists(_txIndex) notExecuted(_txIndex) {
         if (!isConfirmed[_txIndex][msg.sender]) revert TxNotConfirmed(_txIndex);
 
         isConfirmed[_txIndex][msg.sender] = false;
@@ -182,7 +164,7 @@ contract MultiSigWallet {
         isOwner[_owner] = false;
 
         // Swap and pop
-        for (uint256 i = 0; i < owners.length; ) {
+        for (uint256 i = 0; i < owners.length;) {
             if (owners[i] == _owner) {
                 owners[i] = owners[owners.length - 1];
                 owners.pop();
@@ -221,28 +203,14 @@ contract MultiSigWallet {
     }
 
     /// @notice Transaction details by index
-    function getTransaction(
-        uint256 _txIndex
-    )
+    function getTransaction(uint256 _txIndex)
         external
         view
         txExists(_txIndex)
-        returns (
-            address to,
-            uint256 value,
-            bytes memory data,
-            bool executed,
-            uint256 confirmationCount
-        )
+        returns (address to, uint256 value, bytes memory data, bool executed, uint256 confirmationCount)
     {
         Transaction storage txn = transactions[_txIndex];
-        return (
-            txn.to,
-            txn.value,
-            txn.data,
-            txn.executed,
-            txn.confirmationCount
-        );
+        return (txn.to, txn.value, txn.data, txn.executed, txn.confirmationCount);
     }
 
     /// @notice All current signers

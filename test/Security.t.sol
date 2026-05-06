@@ -37,18 +37,12 @@ contract SecurityTest is Test {
 
         // Deploy KYCRegistry via UUPS proxy
         KYCRegistry kycImpl = new KYCRegistry();
-        ERC1967Proxy kycProxy = new ERC1967Proxy(
-            address(kycImpl),
-            abi.encodeCall(KYCRegistry.initialize, ())
-        );
+        ERC1967Proxy kycProxy = new ERC1967Proxy(address(kycImpl), abi.encodeCall(KYCRegistry.initialize, ()));
         kycRegistry = KYCRegistry(address(kycProxy));
 
         // Deploy PropertyRegistry via UUPS proxy
         PropertyRegistry regImpl = new PropertyRegistry();
-        ERC1967Proxy regProxy = new ERC1967Proxy(
-            address(regImpl),
-            abi.encodeCall(PropertyRegistry.initialize, ())
-        );
+        ERC1967Proxy regProxy = new ERC1967Proxy(address(regImpl), abi.encodeCall(PropertyRegistry.initialize, ()));
         propertyRegistry = PropertyRegistry(address(regProxy));
 
         // Deploy PropertyToken beacon
@@ -60,12 +54,7 @@ contract SecurityTest is Test {
         ERC1967Proxy factoryProxy = new ERC1967Proxy(
             address(factoryImpl),
             abi.encodeCall(
-                PropertyTokenFactory.initialize,
-                (
-                    address(kycRegistry),
-                    address(propertyRegistry),
-                    address(beacon)
-                )
+                PropertyTokenFactory.initialize, (address(kycRegistry), address(propertyRegistry), address(beacon))
             )
         );
         factory = PropertyTokenFactory(address(factoryProxy));
@@ -79,12 +68,12 @@ contract SecurityTest is Test {
 
         // KYC users
         vm.prank(admin);
-        kycRegistry.addUser(owner, 2);
+        kycRegistry.addUser(owner);
         vm.prank(admin);
-        kycRegistry.addUser(user1, 1);
+        kycRegistry.addUser(user1);
 
         // Create a token
-        (address tokenAddress, ) = factory.createPropertyToken(
+        (address tokenAddress,) = factory.createPropertyToken(
             IPropertyTokenFactory.CreateTokenParams({
                 name: "Test Token",
                 symbol: "TST",
@@ -93,7 +82,6 @@ contract SecurityTest is Test {
                 propertyAddress: "Jl. Test No. 1",
                 totalValue: 100 ether,
                 ipfsDocumentURI: "ipfs://test",
-                requiredKYCLevel: 1,
                 tokenOwner: owner
             })
         );
@@ -103,18 +91,7 @@ contract SecurityTest is Test {
     function test_ACL_attackerCannotAddKYC() public {
         vm.prank(attacker);
         vm.expectRevert();
-        kycRegistry.addUser(attacker, 1);
-    }
-
-    function test_ACL_attackerCannotBatchAddKYC() public {
-        address[] memory users = new address[](1);
-        users[0] = attacker;
-        uint8[] memory levels = new uint8[](1);
-        levels[0] = 1;
-
-        vm.prank(attacker);
-        vm.expectRevert();
-        kycRegistry.batchAddUsers(users, levels);
+        kycRegistry.addUser(attacker);
     }
 
     function test_ACL_attackerCannotRemoveKYC() public {
@@ -126,13 +103,7 @@ contract SecurityTest is Test {
     function test_ACL_attackerCannotRegisterProperty() public {
         vm.prank(attacker);
         vm.expectRevert();
-        propertyRegistry.registerProperty(
-            "Fake",
-            "Jl. Fake",
-            1 ether,
-            "ipfs://fake",
-            attacker
-        );
+        propertyRegistry.registerProperty("Fake", "Jl. Fake", 1 ether, "ipfs://fake", attacker);
     }
 
     function test_ACL_attackerCannotCreateToken() public {
@@ -147,7 +118,6 @@ contract SecurityTest is Test {
                 propertyAddress: "Jl. Fake No. 1",
                 totalValue: 10 ether,
                 ipfsDocumentURI: "ipfs://fake",
-                requiredKYCLevel: 1,
                 tokenOwner: owner
             })
         );
@@ -186,12 +156,7 @@ contract SecurityTest is Test {
     }
 
     function test_KYCBypass_nonKYCCannotReceive() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PropertyToken.RecipientNotAuthorized.selector,
-                attacker
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(PropertyToken.RecipientNotAuthorized.selector, attacker));
         token.transfer(attacker, 10 ether);
     }
 
@@ -201,40 +166,8 @@ contract SecurityTest is Test {
         kycRegistry.removeUser(user1);
 
         vm.prank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PropertyToken.SenderNotAuthorized.selector,
-                user1
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(PropertyToken.SenderNotAuthorized.selector, user1));
         token.transfer(owner, 5 ether);
-    }
-
-    function test_KYCBypass_level2RejectsLevel1() public {
-        (address premiumAddr, ) = factory.createPropertyToken(
-            IPropertyTokenFactory.CreateTokenParams({
-                name: "Premium Token",
-                symbol: "PREM",
-                totalSupply: 500 ether,
-                propertyName: "Premium Property",
-                propertyAddress: "Jl. Premium No. 1",
-                totalValue: 200 ether,
-                ipfsDocumentURI: "ipfs://premium",
-                requiredKYCLevel: 2,
-                tokenOwner: owner
-            })
-        );
-        PropertyToken premiumToken = PropertyToken(premiumAddr);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PropertyToken.InsufficientKYCLevel.selector,
-                user1,
-                2,
-                1
-            )
-        );
-        premiumToken.transfer(user1, 10 ether);
     }
 
     function test_UpgradeHijack_attackerCannotUpgradeKYCRegistry() public {
@@ -277,24 +210,12 @@ contract SecurityTest is Test {
 
     function test_ReInit_PropertyTokenFactory() public {
         vm.expectRevert();
-        factory.initialize(
-            address(kycRegistry),
-            address(propertyRegistry),
-            address(beacon)
-        );
+        factory.initialize(address(kycRegistry), address(propertyRegistry), address(beacon));
     }
 
     function test_ReInit_PropertyToken() public {
         vm.expectRevert();
-        token.initialize(
-            "Hack",
-            "HACK",
-            100 ether,
-            99,
-            address(kycRegistry),
-            1,
-            attacker
-        );
+        token.initialize("Hack", "HACK", 100 ether, 99, address(kycRegistry), attacker);
     }
 
     function test_StorageCollision_KYCRegistryPreservesData() public {
@@ -346,28 +267,18 @@ contract SecurityTest is Test {
 
         // non-owner cannot submit
         vm.prank(attacker);
-        vm.expectRevert(
-            abi.encodeWithSelector(MultiSigWallet.NotOwner.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.NotOwner.selector));
         ms.submitTransaction(attacker, 0, "");
 
         // non-owner cannot confirm
         ms.submitTransaction(owner, 0, "");
         vm.prank(attacker);
-        vm.expectRevert(
-            abi.encodeWithSelector(MultiSigWallet.NotOwner.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.NotOwner.selector));
         ms.confirmTransaction(0);
 
         // cannot execute below threshold
         ms.confirmTransaction(0);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MultiSigWallet.InsufficientConfirmations.selector,
-                1,
-                2
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.InsufficientConfirmations.selector, 1, 2));
         ms.executeTransaction(0);
 
         // cannot directly call owner management
@@ -386,12 +297,7 @@ contract SecurityTest is Test {
         proposers[0] = owner;
         address[] memory executors = new address[](1);
         executors[0] = owner;
-        TimelockController timelock = new TimelockController(
-            3600,
-            proposers,
-            executors,
-            address(0)
-        );
+        TimelockController timelock = new TimelockController(3600, proposers, executors, address(0));
 
         vm.prank(attacker);
         vm.expectRevert();
@@ -403,26 +309,11 @@ contract SecurityTest is Test {
         proposers[0] = owner;
         address[] memory executors = new address[](1);
         executors[0] = owner;
-        TimelockController timelock = new TimelockController(
-            3600,
-            proposers,
-            executors,
-            address(0)
-        );
+        TimelockController timelock = new TimelockController(3600, proposers, executors, address(0));
 
-        bytes memory calldata_ = abi.encodeCall(
-            KYCRegistry.addUser,
-            (attacker, 1)
-        );
+        bytes memory calldata_ = abi.encodeCall(KYCRegistry.addUser, (attacker));
         bytes32 salt = keccak256("test");
-        timelock.schedule(
-            address(kycRegistry),
-            0,
-            calldata_,
-            bytes32(0),
-            salt,
-            3600
-        );
+        timelock.schedule(address(kycRegistry), 0, calldata_, bytes32(0), salt, 3600);
 
         vm.prank(attacker);
         vm.expectRevert();
@@ -434,19 +325,12 @@ contract SecurityTest is Test {
         proposers[0] = owner;
         address[] memory executors = new address[](1);
         executors[0] = owner;
-        TimelockController timelock = new TimelockController(
-            3600,
-            proposers,
-            executors,
-            address(0)
-        );
+        TimelockController timelock = new TimelockController(3600, proposers, executors, address(0));
 
         bytes32 salt = keccak256("cancel-test");
         timelock.schedule(owner, 0, "", bytes32(0), salt, 3600);
 
-        bytes32 opId = keccak256(
-            abi.encode(owner, uint256(0), bytes(""), bytes32(0), salt)
-        );
+        bytes32 opId = keccak256(abi.encode(owner, uint256(0), bytes(""), bytes32(0), salt));
 
         vm.prank(attacker);
         vm.expectRevert();

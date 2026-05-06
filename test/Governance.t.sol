@@ -55,34 +55,20 @@ contract GovernanceTest is Test {
     function test_Deployment_revertZeroThreshold() public {
         address[] memory owners = new address[](1);
         owners[0] = owner1;
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MultiSigWallet.InvalidThreshold.selector,
-                0,
-                1
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.InvalidThreshold.selector, 0, 1));
         new MultiSigWallet(owners, 0);
     }
 
     function test_Deployment_revertThresholdTooHigh() public {
         address[] memory owners = new address[](1);
         owners[0] = owner1;
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MultiSigWallet.InvalidThreshold.selector,
-                2,
-                1
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.InvalidThreshold.selector, 2, 1));
         new MultiSigWallet(owners, 2);
     }
 
     function test_Deployment_revertEmptyOwners() public {
         address[] memory owners = new address[](0);
-        vm.expectRevert(
-            abi.encodeWithSelector(MultiSigWallet.OwnersRequired.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.OwnersRequired.selector));
         new MultiSigWallet(owners, 1);
     }
 
@@ -90,21 +76,14 @@ contract GovernanceTest is Test {
         address[] memory owners = new address[](2);
         owners[0] = owner1;
         owners[1] = owner1;
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MultiSigWallet.DuplicateOwner.selector,
-                owner1
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.DuplicateOwner.selector, owner1));
         new MultiSigWallet(owners, 1);
     }
 
     function test_Deployment_revertZeroAddressOwner() public {
         address[] memory owners = new address[](1);
         owners[0] = address(0);
-        vm.expectRevert(
-            abi.encodeWithSelector(MultiSigWallet.ZeroAddress.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.ZeroAddress.selector));
         new MultiSigWallet(owners, 1);
     }
 
@@ -118,9 +97,7 @@ contract GovernanceTest is Test {
 
     function test_Submit_revertNonOwner() public {
         vm.prank(nonOwner);
-        vm.expectRevert(
-            abi.encodeWithSelector(MultiSigWallet.NotOwner.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.NotOwner.selector));
         multiSig.submitTransaction(owner1, 0, "");
     }
 
@@ -131,9 +108,7 @@ contract GovernanceTest is Test {
         emit MultiSigWallet.TransactionConfirmed(0, owner1);
         multiSig.confirmTransaction(0);
 
-        (, , , bool executed, uint256 confirmCount) = multiSig.getTransaction(
-            0
-        );
+        (,,, bool executed, uint256 confirmCount) = multiSig.getTransaction(0);
         assertEq(confirmCount, 1);
         assertFalse(executed);
     }
@@ -141,19 +116,12 @@ contract GovernanceTest is Test {
     function test_Confirm_revertDoubleConfirm() public {
         multiSig.submitTransaction(owner1, 0, "");
         multiSig.confirmTransaction(0);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MultiSigWallet.TxAlreadyConfirmed.selector,
-                0
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.TxAlreadyConfirmed.selector, 0));
         multiSig.confirmTransaction(0);
     }
 
     function test_Confirm_revertNonExistentTx() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(MultiSigWallet.TxDoesNotExist.selector, 999)
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.TxDoesNotExist.selector, 999));
         multiSig.confirmTransaction(999);
     }
 
@@ -177,13 +145,7 @@ contract GovernanceTest is Test {
         multiSig.submitTransaction(owner1, 0, "");
         multiSig.confirmTransaction(0);
         // Only 1 confirmation, threshold is 2
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                MultiSigWallet.InsufficientConfirmations.selector,
-                1,
-                2
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.InsufficientConfirmations.selector, 1, 2));
         multiSig.executeTransaction(0);
     }
 
@@ -195,9 +157,7 @@ contract GovernanceTest is Test {
         multiSig.confirmTransaction(0);
         multiSig.executeTransaction(0);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(MultiSigWallet.TxAlreadyExecuted.selector, 0)
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.TxAlreadyExecuted.selector, 0));
         multiSig.executeTransaction(0);
     }
 
@@ -209,16 +169,14 @@ contract GovernanceTest is Test {
         emit MultiSigWallet.TransactionRevoked(0, owner1);
         multiSig.revokeConfirmation(0);
 
-        (, , , , uint256 confirmCount) = multiSig.getTransaction(0);
+        (,,,, uint256 confirmCount) = multiSig.getTransaction(0);
         assertEq(confirmCount, 0);
     }
 
     function test_Revoke_revertNotConfirmed() public {
         multiSig.submitTransaction(owner1, 0, "");
         vm.prank(owner2);
-        vm.expectRevert(
-            abi.encodeWithSelector(MultiSigWallet.TxNotConfirmed.selector, 0)
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.TxNotConfirmed.selector, 0));
         multiSig.revokeConfirmation(0);
     }
 
@@ -235,10 +193,7 @@ contract GovernanceTest is Test {
     }
 
     function test_OwnerMgmt_removeOwner() public {
-        bytes memory data = abi.encodeCall(
-            MultiSigWallet.removeOwner,
-            (owner3)
-        );
+        bytes memory data = abi.encodeCall(MultiSigWallet.removeOwner, (owner3));
         multiSig.submitTransaction(address(multiSig), 0, data);
         multiSig.confirmTransaction(0);
         vm.prank(owner2);
@@ -290,19 +245,11 @@ contract TimelockMultiSigIntegrationTest is Test {
         proposers[0] = address(multiSig);
         address[] memory executors = new address[](1);
         executors[0] = address(multiSig);
-        timelockController = new TimelockController(
-            MIN_DELAY,
-            proposers,
-            executors,
-            address(0)
-        );
+        timelockController = new TimelockController(MIN_DELAY, proposers, executors, address(0));
 
         // Deploy KYCRegistry via proxy
         KYCRegistry kycImpl = new KYCRegistry();
-        ERC1967Proxy kycProxy = new ERC1967Proxy(
-            address(kycImpl),
-            abi.encodeCall(KYCRegistry.initialize, ())
-        );
+        ERC1967Proxy kycProxy = new ERC1967Proxy(address(kycImpl), abi.encodeCall(KYCRegistry.initialize, ()));
         kycRegistry = KYCRegistry(address(kycProxy));
 
         // Transfer roles to timelock
@@ -317,25 +264,20 @@ contract TimelockMultiSigIntegrationTest is Test {
 
     function test_Integration_preventDirectAdmin() public {
         vm.expectRevert();
-        kycRegistry.addUser(nonOwner, 1);
+        kycRegistry.addUser(nonOwner);
     }
 
     function test_Integration_multiSigTimelockFlow() public {
         address timelockAddr = address(timelockController);
         address kycAddr = address(kycRegistry);
 
-        // 1. Encode final operation: kycRegistry.addUser(nonOwner, 1)
-        bytes memory kycCalldata = abi.encodeCall(
-            KYCRegistry.addUser,
-            (nonOwner, 1)
-        );
+        // 1. Encode final operation: kycRegistry.addUser(nonOwner)
+        bytes memory kycCalldata = abi.encodeCall(KYCRegistry.addUser, (nonOwner));
 
         // 2. Encode timelock.schedule() call
         bytes32 salt = keccak256("addUser-nonOwner");
-        bytes memory scheduleCalldata = abi.encodeCall(
-            TimelockController.schedule,
-            (kycAddr, 0, kycCalldata, bytes32(0), salt, MIN_DELAY)
-        );
+        bytes memory scheduleCalldata =
+            abi.encodeCall(TimelockController.schedule, (kycAddr, 0, kycCalldata, bytes32(0), salt, MIN_DELAY));
 
         // 3. Submit schedule via MultiSig
         multiSig.submitTransaction(timelockAddr, 0, scheduleCalldata);
@@ -348,10 +290,8 @@ contract TimelockMultiSigIntegrationTest is Test {
         vm.warp(block.timestamp + MIN_DELAY + 1);
 
         // 5. Encode timelock.execute() call
-        bytes memory executeCalldata = abi.encodeCall(
-            TimelockController.execute,
-            (kycAddr, 0, kycCalldata, bytes32(0), salt)
-        );
+        bytes memory executeCalldata =
+            abi.encodeCall(TimelockController.execute, (kycAddr, 0, kycCalldata, bytes32(0), salt));
 
         // 6. Execute via MultiSig
         multiSig.submitTransaction(timelockAddr, 0, executeCalldata);
@@ -362,24 +302,19 @@ contract TimelockMultiSigIntegrationTest is Test {
 
         // 7. Verify user was added via governance flow
         assertTrue(kycRegistry.isVerified(nonOwner));
-        assertEq(kycRegistry.getKYCLevel(nonOwner), 1);
+        assertTrue(kycRegistry.isVerified(nonOwner));
     }
 
     function test_Integration_revertEarlyExecution() public {
         address timelockAddr = address(timelockController);
         address kycAddr = address(kycRegistry);
 
-        bytes memory kycCalldata = abi.encodeCall(
-            KYCRegistry.addUser,
-            (nonOwner, 1)
-        );
+        bytes memory kycCalldata = abi.encodeCall(KYCRegistry.addUser, (nonOwner));
         bytes32 salt = keccak256("early-execute-test");
 
         // Schedule
-        bytes memory scheduleCalldata = abi.encodeCall(
-            TimelockController.schedule,
-            (kycAddr, 0, kycCalldata, bytes32(0), salt, MIN_DELAY)
-        );
+        bytes memory scheduleCalldata =
+            abi.encodeCall(TimelockController.schedule, (kycAddr, 0, kycCalldata, bytes32(0), salt, MIN_DELAY));
         multiSig.submitTransaction(timelockAddr, 0, scheduleCalldata);
         multiSig.confirmTransaction(0);
         vm.prank(owner2);
@@ -387,18 +322,14 @@ contract TimelockMultiSigIntegrationTest is Test {
         multiSig.executeTransaction(0);
 
         // Try to execute immediately (should fail — delay not passed)
-        bytes memory executeCalldata = abi.encodeCall(
-            TimelockController.execute,
-            (kycAddr, 0, kycCalldata, bytes32(0), salt)
-        );
+        bytes memory executeCalldata =
+            abi.encodeCall(TimelockController.execute, (kycAddr, 0, kycCalldata, bytes32(0), salt));
         multiSig.submitTransaction(timelockAddr, 0, executeCalldata);
         multiSig.confirmTransaction(1);
         vm.prank(owner2);
         multiSig.confirmTransaction(1);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(MultiSigWallet.TxExecutionFailed.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(MultiSigWallet.TxExecutionFailed.selector));
         multiSig.executeTransaction(1);
     }
 
@@ -406,17 +337,12 @@ contract TimelockMultiSigIntegrationTest is Test {
         address timelockAddr = address(timelockController);
         address kycAddr = address(kycRegistry);
 
-        bytes memory kycCalldata = abi.encodeCall(
-            KYCRegistry.addUser,
-            (nonOwner, 1)
-        );
+        bytes memory kycCalldata = abi.encodeCall(KYCRegistry.addUser, (nonOwner));
         bytes32 salt = keccak256("cancel-test");
 
         // Schedule
-        bytes memory scheduleCalldata = abi.encodeCall(
-            TimelockController.schedule,
-            (kycAddr, 0, kycCalldata, bytes32(0), salt, MIN_DELAY)
-        );
+        bytes memory scheduleCalldata =
+            abi.encodeCall(TimelockController.schedule, (kycAddr, 0, kycCalldata, bytes32(0), salt, MIN_DELAY));
         multiSig.submitTransaction(timelockAddr, 0, scheduleCalldata);
         multiSig.confirmTransaction(0);
         vm.prank(owner2);
@@ -424,15 +350,10 @@ contract TimelockMultiSigIntegrationTest is Test {
         multiSig.executeTransaction(0);
 
         // Compute operation ID
-        bytes32 operationId = keccak256(
-            abi.encode(kycAddr, uint256(0), kycCalldata, bytes32(0), salt)
-        );
+        bytes32 operationId = keccak256(abi.encode(kycAddr, uint256(0), kycCalldata, bytes32(0), salt));
 
         // Cancel via MultiSig
-        bytes memory cancelCalldata = abi.encodeCall(
-            TimelockController.cancel,
-            (operationId)
-        );
+        bytes memory cancelCalldata = abi.encodeCall(TimelockController.cancel, (operationId));
         multiSig.submitTransaction(timelockAddr, 0, cancelCalldata);
         multiSig.confirmTransaction(1);
         vm.prank(owner2);
@@ -475,23 +396,12 @@ contract OperatorDirectFlowTest is Test {
 
         // --- Deploy core contracts ---
         KYCRegistry kycImpl = new KYCRegistry();
-        kycRegistry = KYCRegistry(
-            address(
-                new ERC1967Proxy(
-                    address(kycImpl),
-                    abi.encodeCall(KYCRegistry.initialize, ())
-                )
-            )
-        );
+        kycRegistry =
+            KYCRegistry(address(new ERC1967Proxy(address(kycImpl), abi.encodeCall(KYCRegistry.initialize, ()))));
 
         PropertyRegistry regImpl = new PropertyRegistry();
         propertyRegistry = PropertyRegistry(
-            address(
-                new ERC1967Proxy(
-                    address(regImpl),
-                    abi.encodeCall(PropertyRegistry.initialize, ())
-                )
-            )
+            address(new ERC1967Proxy(address(regImpl), abi.encodeCall(PropertyRegistry.initialize, ())))
         );
 
         PropertyToken tokenImpl = new PropertyToken();
@@ -511,10 +421,7 @@ contract OperatorDirectFlowTest is Test {
         );
 
         // Factory needs REGISTRY_ADMIN_ROLE so createPropertyToken can auto-register
-        propertyRegistry.grantRole(
-            propertyRegistry.REGISTRY_ADMIN_ROLE(),
-            address(factory)
-        );
+        propertyRegistry.grantRole(propertyRegistry.REGISTRY_ADMIN_ROLE(), address(factory));
 
         // --- Replicate Deploy.s.sol role partitioning ---
         bytes32 kycAdmin = kycRegistry.KYC_ADMIN_ROLE();
@@ -547,32 +454,15 @@ contract OperatorDirectFlowTest is Test {
 
     function test_Tier1_kycOperator_addUserDirect() public {
         vm.prank(kycOperator);
-        kycRegistry.addUser(investor1, 1);
+        kycRegistry.addUser(investor1);
 
         assertTrue(kycRegistry.isVerified(investor1));
-        assertEq(kycRegistry.getKYCLevel(investor1), 1);
-    }
-
-    function test_Tier1_kycOperator_batchAddUsersDirect() public {
-        address[] memory users = new address[](3);
-        users[0] = investor1;
-        users[1] = investor2;
-        users[2] = makeAddr("investor3");
-
-        uint8[] memory levels = new uint8[](3);
-        levels[0] = 1;
-        levels[1] = 2;
-        levels[2] = 1;
-
-        vm.prank(kycOperator);
-        kycRegistry.batchAddUsers(users, levels);
-
-        assertEq(kycRegistry.getVerifiedUserCount(), 3);
+        assertTrue(kycRegistry.isVerified(investor1));
     }
 
     function test_Tier1_kycOperator_removeUserDirect() public {
         vm.prank(kycOperator);
-        kycRegistry.addUser(investor1, 1);
+        kycRegistry.addUser(investor1);
 
         vm.prank(kycOperator);
         kycRegistry.removeUser(investor1);
@@ -580,25 +470,9 @@ contract OperatorDirectFlowTest is Test {
         assertFalse(kycRegistry.isVerified(investor1));
     }
 
-    function test_Tier1_kycOperator_updateKYCLevelDirect() public {
-        vm.prank(kycOperator);
-        kycRegistry.addUser(investor1, 1);
-
-        vm.prank(kycOperator);
-        kycRegistry.updateKYCLevel(investor1, 2);
-
-        assertEq(kycRegistry.getKYCLevel(investor1), 2);
-    }
-
     function test_Tier1_registryOperator_updateIPFSDirect() public {
         vm.prank(registryOperator);
-        propertyRegistry.registerProperty(
-            "Prop",
-            "Jl. A",
-            100 ether,
-            "ipfs://old",
-            makeAddr("tokenA")
-        );
+        propertyRegistry.registerProperty("Prop", "Jl. A", 100 ether, "ipfs://old", makeAddr("tokenA"));
 
         vm.prank(registryOperator);
         propertyRegistry.updateIPFSDocument(1, "ipfs://new");
@@ -608,13 +482,7 @@ contract OperatorDirectFlowTest is Test {
 
     function test_Tier1_registryOperator_deactivateDirect() public {
         vm.prank(registryOperator);
-        propertyRegistry.registerProperty(
-            "Prop",
-            "Jl. A",
-            100 ether,
-            "ipfs://doc",
-            makeAddr("tokenB")
-        );
+        propertyRegistry.registerProperty("Prop", "Jl. A", 100 ether, "ipfs://doc", makeAddr("tokenB"));
 
         vm.prank(registryOperator);
         propertyRegistry.deactivateProperty(1);
@@ -633,7 +501,6 @@ contract OperatorDirectFlowTest is Test {
                 propertyAddress: "Jl. Tier1",
                 totalValue: 100 ether,
                 ipfsDocumentURI: "ipfs://tier1",
-                requiredKYCLevel: 1,
                 tokenOwner: timelock
             })
         );
@@ -690,7 +557,7 @@ contract OperatorDirectFlowTest is Test {
         kycRegistry.grantRole(role, newOperator);
 
         vm.prank(newOperator);
-        kycRegistry.addUser(investor1, 1);
+        kycRegistry.addUser(investor1);
         assertTrue(kycRegistry.isVerified(investor1));
     }
 
@@ -699,7 +566,7 @@ contract OperatorDirectFlowTest is Test {
         // Daily ops still require the operator role.
         vm.prank(timelock);
         vm.expectRevert();
-        kycRegistry.addUser(investor1, 1);
+        kycRegistry.addUser(investor1);
     }
 
     // -------------------------------------------------------------------
@@ -709,7 +576,7 @@ contract OperatorDirectFlowTest is Test {
     function test_Acl_randomActorCannotAddKYC() public {
         vm.prank(makeAddr("random"));
         vm.expectRevert();
-        kycRegistry.addUser(investor1, 1);
+        kycRegistry.addUser(investor1);
     }
 
     function test_Acl_randomActorCannotCreateToken() public {
@@ -724,7 +591,6 @@ contract OperatorDirectFlowTest is Test {
                 propertyAddress: "Nope",
                 totalValue: 1,
                 ipfsDocumentURI: "ipfs://nope",
-                requiredKYCLevel: 1,
                 tokenOwner: makeAddr("random")
             })
         );
