@@ -28,8 +28,6 @@ contract InvariantTest is Test {
     InvariantHandler internal handler;
 
     uint256 internal constant INITIAL_SUPPLY = 1_000_000 ether;
-    uint8 internal constant KYC_LEVEL_BASIC = 1;
-    uint8 internal constant KYC_LEVEL_ENHANCED = 2;
 
     function setUp() public {
         admin = address(this);
@@ -37,23 +35,12 @@ contract InvariantTest is Test {
         seedActor2 = makeAddr("invSeed2");
 
         KYCRegistry kycImpl = new KYCRegistry();
-        kycRegistry = KYCRegistry(
-            address(
-                new ERC1967Proxy(
-                    address(kycImpl),
-                    abi.encodeCall(KYCRegistry.initialize, ())
-                )
-            )
-        );
+        kycRegistry =
+            KYCRegistry(address(new ERC1967Proxy(address(kycImpl), abi.encodeCall(KYCRegistry.initialize, ()))));
 
         PropertyRegistry regImpl = new PropertyRegistry();
         propertyRegistry = PropertyRegistry(
-            address(
-                new ERC1967Proxy(
-                    address(regImpl),
-                    abi.encodeCall(PropertyRegistry.initialize, ())
-                )
-            )
+            address(new ERC1967Proxy(address(regImpl), abi.encodeCall(PropertyRegistry.initialize, ())))
         );
 
         PropertyToken tokenImpl = new PropertyToken();
@@ -62,35 +49,20 @@ contract InvariantTest is Test {
         BeaconProxy proxy = new BeaconProxy(
             address(beacon),
             abi.encodeCall(
-                PropertyToken.initialize,
-                (
-                    "Invariant Token",
-                    "IVT",
-                    INITIAL_SUPPLY,
-                    1,
-                    address(kycRegistry),
-                    KYC_LEVEL_BASIC,
-                    admin
-                )
+                PropertyToken.initialize, ("Invariant Token", "IVT", INITIAL_SUPPLY, 1, address(kycRegistry), admin)
             )
         );
         token = PropertyToken(address(proxy));
 
-        kycRegistry.addUser(admin, KYC_LEVEL_ENHANCED);
-        kycRegistry.addUser(seedActor1, KYC_LEVEL_BASIC);
-        kycRegistry.addUser(seedActor2, KYC_LEVEL_ENHANCED);
+        kycRegistry.addUser(admin);
+        kycRegistry.addUser(seedActor1);
+        kycRegistry.addUser(seedActor2);
 
         address[] memory initialActors = new address[](2);
         initialActors[0] = seedActor1;
         initialActors[1] = seedActor2;
 
-        handler = new InvariantHandler(
-            kycRegistry,
-            propertyRegistry,
-            token,
-            admin,
-            initialActors
-        );
+        handler = new InvariantHandler(kycRegistry, propertyRegistry, token, admin, initialActors);
 
         targetContract(address(handler));
 
@@ -100,9 +72,7 @@ contract InvariantTest is Test {
         selectors[2] = InvariantHandler.transfer.selector;
         selectors[3] = InvariantHandler.mint.selector;
         selectors[4] = InvariantHandler.registerProperty.selector;
-        targetSelector(
-            FuzzSelector({addr: address(handler), selectors: selectors})
-        );
+        targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
 
         excludeSender(admin);
         excludeContract(address(kycRegistry));
@@ -125,11 +95,7 @@ contract InvariantTest is Test {
             sum += token.balanceOf(holders[i]);
         }
 
-        assertEq(
-            sum,
-            token.totalSupply(),
-            "totalSupply mismatch across tracked holders"
-        );
+        assertEq(sum, token.totalSupply(), "totalSupply mismatch across tracked holders");
     }
 
     // -------------------------------------------------------------------
@@ -144,15 +110,7 @@ contract InvariantTest is Test {
         assertEq(reported, verified.length, "count != array length");
 
         for (uint256 i = 0; i < verified.length; i++) {
-            assertTrue(
-                kycRegistry.isVerified(verified[i]),
-                "listed address is not verified"
-            );
-            assertGt(
-                kycRegistry.getKYCLevel(verified[i]),
-                0,
-                "verified address has level 0"
-            );
+            assertTrue(kycRegistry.isVerified(verified[i]), "listed address is not verified");
         }
     }
 
@@ -165,11 +123,7 @@ contract InvariantTest is Test {
     function invariant_PropertyIdMonotonic() external {
         uint256 next = propertyRegistry.getNextPropertyId();
         assertGe(next, 1, "nextPropertyId must start >= 1");
-        assertEq(
-            next,
-            handler.ghostInitialNextPropertyId() + handler.ghostRegistered(),
-            "propertyId drift"
-        );
+        assertEq(next, handler.ghostInitialNextPropertyId() + handler.ghostRegistered(), "propertyId drift");
     }
 
     // -------------------------------------------------------------------
@@ -188,11 +142,8 @@ contract InvariantTest is Test {
         // No assertion here; just force the invariant runner to evaluate
         // `handler` state so ghost counters are captured in traces.
         assertGe(
-            handler.callsTransfer() +
-                handler.callsAddUser() +
-                handler.callsRemoveUser() +
-                handler.callsMint() +
-                handler.callsRegister(),
+            handler.callsTransfer() + handler.callsAddUser() + handler.callsRemoveUser() + handler.callsMint()
+                + handler.callsRegister(),
             0
         );
     }

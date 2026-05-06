@@ -27,20 +27,12 @@ contract Deploy is Script {
             PropertyTokenFactory factory
         ) = _deployCore(deployer);
 
-        _deployGovernance(
-            deployer,
-            kycRegistry,
-            propertyRegistry,
-            beacon,
-            factory
-        );
+        _deployGovernance(deployer, kycRegistry, propertyRegistry, beacon, factory);
 
         vm.stopBroadcast();
     }
 
-    function _deployCore(
-        address deployer
-    )
+    function _deployCore(address deployer)
         internal
         returns (
             KYCRegistry kycRegistry,
@@ -50,22 +42,12 @@ contract Deploy is Script {
         )
     {
         kycRegistry = KYCRegistry(
-            address(
-                new ERC1967Proxy(
-                    address(new KYCRegistry()),
-                    abi.encodeCall(KYCRegistry.initialize, ())
-                )
-            )
+            address(new ERC1967Proxy(address(new KYCRegistry()), abi.encodeCall(KYCRegistry.initialize, ())))
         );
         console.log("KYCRegistry:", address(kycRegistry));
 
         propertyRegistry = PropertyRegistry(
-            address(
-                new ERC1967Proxy(
-                    address(new PropertyRegistry()),
-                    abi.encodeCall(PropertyRegistry.initialize, ())
-                )
-            )
+            address(new ERC1967Proxy(address(new PropertyRegistry()), abi.encodeCall(PropertyRegistry.initialize, ())))
         );
         console.log("PropertyRegistry:", address(propertyRegistry));
 
@@ -78,21 +60,14 @@ contract Deploy is Script {
                     address(new PropertyTokenFactory()),
                     abi.encodeCall(
                         PropertyTokenFactory.initialize,
-                        (
-                            address(kycRegistry),
-                            address(propertyRegistry),
-                            address(beacon)
-                        )
+                        (address(kycRegistry), address(propertyRegistry), address(beacon))
                     )
                 )
             )
         );
         console.log("PropertyTokenFactory:", address(factory));
 
-        propertyRegistry.grantRole(
-            propertyRegistry.REGISTRY_ADMIN_ROLE(),
-            address(factory)
-        );
+        propertyRegistry.grantRole(propertyRegistry.REGISTRY_ADMIN_ROLE(), address(factory));
     }
 
     function _deployGovernance(
@@ -129,33 +104,22 @@ contract Deploy is Script {
         multisigOwners[0] = msOwner1;
         multisigOwners[1] = msOwner2;
         multisigOwners[2] = msOwner3;
-        MultiSigWallet multiSig = new MultiSigWallet(
-            multisigOwners,
-            msThreshold
-        );
+        MultiSigWallet multiSig = new MultiSigWallet(multisigOwners, msThreshold);
         console.log("MultiSigWallet:", address(multiSig));
 
         address[] memory proposers = new address[](1);
         proposers[0] = address(multiSig);
         address[] memory executors = new address[](1);
         executors[0] = address(multiSig);
-        TimelockController timelock = new TimelockController(
-            172800,
-            proposers,
-            executors,
-            address(0)
-        );
+        TimelockController timelock = new TimelockController(172800, proposers, executors, address(0));
         console.log("TimelockController:", address(timelock));
 
         return address(timelock);
     }
 
-    function _transferKYCRoles(
-        KYCRegistry kycRegistry,
-        address deployer,
-        address timelock,
-        address kycOperator
-    ) internal {
+    function _transferKYCRoles(KYCRegistry kycRegistry, address deployer, address timelock, address kycOperator)
+        internal
+    {
         bytes32 adminRole = kycRegistry.DEFAULT_ADMIN_ROLE();
         bytes32 kycAdminRole = kycRegistry.KYC_ADMIN_ROLE();
         kycRegistry.grantRole(adminRole, timelock);

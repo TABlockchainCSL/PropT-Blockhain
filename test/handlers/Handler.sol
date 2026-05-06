@@ -93,23 +93,17 @@ contract InvariantHandler is CommonBase, StdCheats, StdUtils {
 
     // --- Action: add a new KYC user ---
     /// @dev Uses a salted pseudo-random address so we explore many actors.
-    function addUser(uint256 seed, uint8 rawLevel) external {
+    function addUser(uint256 seed) external {
         callsAddUser++;
-        address a = address(
-            uint160(
-                uint256(keccak256(abi.encode(seed, "actor", _actors.length)))
-            )
-        );
+        address a = address(uint160(uint256(keccak256(abi.encode(seed, "actor", _actors.length)))));
         if (a == address(0) || uint160(a) < 0x20) return;
         if (a == admin || a == address(this)) return;
         if (a == address(token) || a == address(kycRegistry)) return;
         if (a == address(propertyRegistry)) return;
         if (kycRegistry.isVerified(a)) return;
 
-        uint8 level = uint8(bound(uint256(rawLevel), 1, 2));
-
         vm.prank(admin);
-        try kycRegistry.addUser(a, level) {
+        try kycRegistry.addUser(a) {
             if (!_isActor[a]) {
                 _actors.push(a);
                 _isActor[a] = true;
@@ -173,23 +167,15 @@ contract InvariantHandler is CommonBase, StdCheats, StdUtils {
         callsRegister++;
         totalValue = bound(totalValue, 1, type(uint128).max);
 
-        address tokenAddr = address(
-            uint160(
-                uint256(keccak256(abi.encode(seed, "prop", ghostRegistered)))
-            )
-        );
+        address tokenAddr = address(uint160(uint256(keccak256(abi.encode(seed, "prop", ghostRegistered)))));
         if (tokenAddr == address(0)) return;
 
         vm.prank(admin);
-        try
-            propertyRegistry.registerProperty(
-                "Inv Property",
-                "Jl. Invariant No. 1",
-                totalValue,
-                "ipfs://inv",
-                tokenAddr
-            )
-        returns (uint256 id) {
+        try propertyRegistry.registerProperty(
+            "Inv Property", "Jl. Invariant No. 1", totalValue, "ipfs://inv", tokenAddr
+        ) returns (
+            uint256 id
+        ) {
             ghostRegistered++;
             if (id > ghostLastPropertyId) {
                 ghostLastPropertyId = id;
