@@ -26,7 +26,7 @@ import "@openzeppelin/contracts/governance/TimelockController.sol";
  *      - TimelockControl: 48-hour delay after proposal approval gives
  *        minority investors time to exit before execution
  *        (Santana & Albareda, 2022).
- *      - GovernorVotesQuorumFraction(10): 10% quorum — cukup rendah agar
+ *      - GovernorVotesQuorumFraction(4): 4% quorum — cukup rendah agar
  *        proposal realistis lolos (investor ritel pada umumnya pasif,
  *        partisipasi voting rata-rata hanya 5-10%), namun cukup tinggi
  *        untuk mencegah manipulasi oleh segelintir pemegang token.
@@ -46,7 +46,7 @@ import "@openzeppelin/contracts/governance/TimelockController.sol";
  * Liquidation Flow (Jual Properti):
  *  1. Admin verifikasi dana penjualan sudah diterima off-chain
  *  2. Admin propose likuidasi via Governor
- *  3. Investor vote (10% quorum, >50% majority)
+ *  3. Investor vote (4% quorum, >50% majority)
  *  4. Jika disetujui → execute via Timelock:
  *     a. DividendDistribution.depositDividends(hasilPenjualan)
  *     b. PropertyRegistry.deactivateProperty(propertyId)
@@ -95,12 +95,12 @@ contract PropertyGovernor is
     )
         Governor("PropertyGovernor")
         GovernorSettings(
-            7200,   // votingDelay  = ~1 day (~7200 blocks on Base at ~12s/block)
-            36000,  // votingPeriod = ~5 days
+            43200,  // votingDelay  = 1 day  (86400s / 2s per block on Base)
+            302400, // votingPeriod = 7 days (604800s / 2s per block on Base)
             0       // proposalThreshold = 0 (akses dikontrol oleh onlyProposerAdmin)
         )
         GovernorVotes(token_)
-        GovernorVotesQuorumFraction(10)  // 10% of total supply must participate
+        GovernorVotesQuorumFraction(4)  // 4% of total supply must participate
         GovernorTimelockControl(timelock_)
     {
         require(proposerAdmin_ != address(0), "Governor: zero proposer admin");

@@ -24,7 +24,7 @@ contract MockUSDC is ERC20 {
 
 /// @title PropertyGovernorTest
 /// @notice Tests for the PropertyGovernor DAO governance contract.
-///         Covers: admin-only propose, 10% quorum, IPFS document storage,
+///         Covers: admin-only propose, 4% quorum, IPFS document storage,
 ///         liquidation (burn) flow, and voting mechanics.
 contract PropertyGovernorTest is Test {
     KYCRegistry public kyc;
@@ -196,21 +196,21 @@ contract PropertyGovernorTest is Test {
     }
 
     function test_governor_votingDelay() public {
-        assertEq(governor.votingDelay(), 7200);
+        assertEq(governor.votingDelay(), 43200);
     }
 
     function test_governor_votingPeriod() public {
-        assertEq(governor.votingPeriod(), 36000);
+        assertEq(governor.votingPeriod(), 302400);
     }
 
     function test_governor_proposerAdmin() public {
         assertEq(governor.proposerAdmin(), admin);
     }
 
-    function test_governor_quorum_is10Percent() public {
-        // 10% of 1000e18 = 100e18
+    function test_governor_quorum_is4Percent() public {
+        // 4% of 1000e18 = 40e18
         uint256 q = governor.quorum(block.number - 1);
-        assertEq(q, 100e18);
+        assertEq(q, 40e18);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -646,7 +646,7 @@ contract PropertyGovernorTest is Test {
 
         vm.roll(block.number + governor.votingPeriod() + 1);
 
-        // voter1 (400) + voter3 (250) = 650 > 100 quorum (10%)
+        // voter1 (400) + voter3 (250) = 650 > 40 quorum (4%)
         assertEq(
             uint256(governor.state(proposalId)),
             uint256(IGovernor.ProposalState.Succeeded)
@@ -737,7 +737,7 @@ contract PropertyGovernorTest is Test {
 
     function test_proposalSucceeded_exactQuorum() public {
         // Deploy a new setup where one voter has exactly 10% (100e18)
-        // voter3 has 250e18 (25% > 10%), so just voter3 voting = quorum met
+        // voter3 has 250e18 (25% > 4%), so just voter3 voting = quorum met
         (
             address[] memory targets,
             uint256[] memory values,
@@ -752,13 +752,13 @@ contract PropertyGovernorTest is Test {
 
         vm.roll(block.number + governor.votingDelay() + 1);
 
-        // Only voter3 (250e18 = 25%) votes For — quorum is 100e18 (10%)
+        // Only voter3 (250e18 = 25%) votes For — quorum is 40e18 (4%)
         vm.prank(voter3);
         governor.castVote(proposalId, 1);
 
         vm.roll(block.number + governor.votingPeriod() + 1);
 
-        // Should succeed: 250e18 > 100e18 quorum, For > Against
+        // Should succeed: 250e18 > 40e18 quorum, For > Against
         assertEq(
             uint256(governor.state(proposalId)),
             uint256(IGovernor.ProposalState.Succeeded)

@@ -449,7 +449,7 @@ contract GovernorFuzzTest is Test {
 
         vm.roll(block.number + governor.votingPeriod() + 1);
 
-        uint256 quorum = 100e18; // 10% of 1000
+        uint256 quorum = 40e18; // 4% of 1000
         uint256 totalParticipation = forTotal + againstTotal + abstainTotal;
 
         IGovernor.ProposalState finalState = governor.state(proposalId);
