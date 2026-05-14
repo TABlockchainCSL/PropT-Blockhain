@@ -1,92 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
+import {AMMConfig} from "./base/AMMConfig.sol";
+import {EmbeddedLPToken} from "./base/EmbeddedLPToken.sol";
+import {ReentrancyGuardLite} from "./base/ReentrancyGuardLite.sol";
 import {IERC20Minimal} from "./interfaces/IERC20Minimal.sol";
-import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
-import {DecimalMath} from "./libraries/DecimalMath.sol";
 import {MathHelpers} from "./libraries/MathHelpers.sol";
-import {PMMMath} from "./libraries/PMMMath.sol";
+import {PMMQuoter} from "./libraries/PMMQuoter.sol";
+import {BuyQuote, PoolState, RStatus, SellQuote, TargetState} from "./types/PMMTypes.sol";
 
-contract MinimalDodoPMM {
-    enum RStatus {
-        ONE,
-        ABOVE_ONE,
-        BELOW_ONE
-    }
+contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
+    uint8 public constant TOKEN_DECIMALS = 18;
 
-    address public owner;
-    address public supervisor;
-    address public maintainer;
-    address public taxRecipient;
-    string public name;
-    string public symbol;
-    uint8 public constant decimals = 18;
-    uint256 public totalSupply;
     IERC20Minimal public immutable baseToken;
     IERC20Minimal public immutable quoteToken;
-    IPriceOracle public oracle;
 
     bool public tradingEnabled;
     bool public buyingEnabled;
     bool public sellingEnabled;
-    bool public taxEnabled;
-
-    uint256 public lpFeeRate;
-    uint256 public maintainerFeeRate;
-    uint256 public buyTaxRate;
-    uint256 public sellTaxRate;
-    uint256 public k;
 
     RStatus public rStatus;
     uint256 public targetBaseTokenAmount;
     uint256 public targetQuoteTokenAmount;
     uint256 public baseBalance;
     uint256 public quoteBalance;
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
 
-    bool private entered;
-
-    event OwnershipTransferred(address indexed oldOwner, address indexed newOwner);
-    event SupervisorUpdated(address indexed oldSupervisor, address indexed newSupervisor);
-    event OracleUpdated(address indexed oldOracle, address indexed newOracle);
-    event MaintainerUpdated(address indexed oldMaintainer, address indexed newMaintainer);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-    event Transfer(address indexed from, address indexed to, uint256 value);
     event LiquidityProvided(address indexed provider, uint256 baseAmount, uint256 quoteAmount, uint256 sharesMinted);
     event LiquidityWithdrawn(address indexed receiver, uint256 baseAmount, uint256 quoteAmount, uint256 sharesBurned);
     event BuyBaseToken(address indexed buyer, uint256 receiveBase, uint256 payQuote);
     event SellBaseToken(address indexed seller, uint256 payBase, uint256 receiveQuote);
     event ChargeMaintainerFee(address indexed maintainer, bool isBaseToken, uint256 amount);
     event ChargeTax(address indexed recipient, uint256 amount, bool isBuy);
-    event TaxRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
-    event TaxEnabledUpdated(bool oldEnabled, bool newEnabled);
-    event BuyTaxRateUpdated(uint256 oldRate, uint256 newRate);
-    event SellTaxRateUpdated(uint256 oldRate, uint256 newRate);
-    event LpFeeRateUpdated(uint256 oldRate, uint256 newRate);
-    event MaintainerFeeRateUpdated(uint256 oldRate, uint256 newRate);
-    event KUpdated(uint256 oldK, uint256 newK);
     event TradingEnabledUpdated(bool oldValue, bool newValue);
     event BuyingEnabledUpdated(bool oldValue, bool newValue);
     event SellingEnabledUpdated(bool oldValue, bool newValue);
     event TokenRecovered(address indexed token, address indexed to, uint256 amount);
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "NOT_OWNER");
-        _;
-    }
-
-    modifier onlySupervisorOrOwner() {
-        require(msg.sender == owner || msg.sender == supervisor, "NOT_SUPERVISOR_OR_OWNER");
-        _;
-    }
-
-    modifier nonReentrant() {
-        require(!entered, "REENTRANT");
-        entered = true;
-        _;
-        entered = false;
-    }
 
     modifier whenTradingEnabled() {
         require(tradingEnabled, "TRADE_NOT_ALLOWED");
@@ -115,107 +63,21 @@ contract MinimalDodoPMM {
         uint256 k_,
         string memory shareName_,
         string memory shareSymbol_
-    ) {
-        require(owner_ != address(0), "INVALID_OWNER");
+    )
+        EmbeddedLPToken(shareName_, shareSymbol_)
+        AMMConfig(owner_, supervisor_, maintainer_, oracle_, lpFeeRate_, maintainerFeeRate_, k_)
+    {
         require(baseToken_ != address(0), "INVALID_BASE_TOKEN");
         require(quoteToken_ != address(0), "INVALID_QUOTE_TOKEN");
-        require(oracle_ != address(0), "INVALID_ORACLE");
+        require(baseToken_ != quoteToken_, "IDENTICAL_TOKENS");
+        require(IERC20Minimal(baseToken_).decimals() == TOKEN_DECIMALS, "BASE_DECIMALS_NOT_18");
+        require(IERC20Minimal(quoteToken_).decimals() == TOKEN_DECIMALS, "QUOTE_DECIMALS_NOT_18");
 
-        owner = owner_;
-        supervisor = supervisor_;
-        maintainer = maintainer_;
-        name = shareName_;
-        symbol = shareSymbol_;
         baseToken = IERC20Minimal(baseToken_);
         quoteToken = IERC20Minimal(quoteToken_);
-        oracle = IPriceOracle(oracle_);
         buyingEnabled = true;
         sellingEnabled = true;
         rStatus = RStatus.ONE;
-        lpFeeRate = lpFeeRate_;
-        maintainerFeeRate = maintainerFeeRate_;
-        k = k_;
-        _checkParameters();
-        emit OwnershipTransferred(address(0), owner_);
-    }
-
-    function approve(address spender, uint256 amount) external returns (bool) {
-        allowance[msg.sender][spender] = amount;
-        emit Approval(msg.sender, spender, amount);
-        return true;
-    }
-
-    function transfer(address to, uint256 amount) external returns (bool) {
-        _transfer(msg.sender, to, amount);
-        return true;
-    }
-
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
-        uint256 allowed = allowance[from][msg.sender];
-        if (allowed != type(uint256).max) {
-            allowance[from][msg.sender] = allowed - amount;
-            emit Approval(from, msg.sender, allowance[from][msg.sender]);
-        }
-        _transfer(from, to, amount);
-        return true;
-    }
-
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "INVALID_OWNER");
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
-    }
-
-    function setSupervisor(address newSupervisor) external onlyOwner {
-        emit SupervisorUpdated(supervisor, newSupervisor);
-        supervisor = newSupervisor;
-    }
-
-    function setOracle(address newOracle) external onlyOwner {
-        require(newOracle != address(0), "INVALID_ORACLE");
-        emit OracleUpdated(address(oracle), newOracle);
-        oracle = IPriceOracle(newOracle);
-    }
-
-    function setMaintainer(address newMaintainer) external onlyOwner {
-        emit MaintainerUpdated(maintainer, newMaintainer);
-        maintainer = newMaintainer;
-    }
-
-    function setLpFeeRate(uint256 newLpFeeRate) external onlyOwner {
-        emit LpFeeRateUpdated(lpFeeRate, newLpFeeRate);
-        lpFeeRate = newLpFeeRate;
-        _checkParameters();
-    }
-
-    function setMaintainerFeeRate(uint256 newMaintainerFeeRate) external onlyOwner {
-        emit MaintainerFeeRateUpdated(maintainerFeeRate, newMaintainerFeeRate);
-        maintainerFeeRate = newMaintainerFeeRate;
-        _checkParameters();
-    }
-
-    function setBuyTaxRate(uint256 newBuyTaxRate) external onlyOwner {
-        emit BuyTaxRateUpdated(buyTaxRate, newBuyTaxRate);
-        buyTaxRate = newBuyTaxRate;
-        _checkParameters();
-    }
-
-    function setSellTaxRate(uint256 newSellTaxRate) external onlyOwner {
-        emit SellTaxRateUpdated(sellTaxRate, newSellTaxRate);
-        sellTaxRate = newSellTaxRate;
-        _checkParameters();
-    }
-
-    function setTaxRecipient(address newTaxRecipient) external onlyOwner {
-        require(newTaxRecipient != address(0) || !taxEnabled, "TAX_RECIPIENT_NOT_SET");
-        emit TaxRecipientUpdated(taxRecipient, newTaxRecipient);
-        taxRecipient = newTaxRecipient;
-    }
-
-    function setK(uint256 newK) external onlyOwner {
-        emit KUpdated(k, newK);
-        k = newK;
-        _checkParameters();
     }
 
     function enableTrading() external onlyOwner {
@@ -249,18 +111,7 @@ contract MinimalDodoPMM {
         sellingEnabled = false;
     }
 
-    function enableTax() external onlyOwner {
-        require(taxRecipient != address(0), "TAX_RECIPIENT_NOT_SET");
-        emit TaxEnabledUpdated(taxEnabled, true);
-        taxEnabled = true;
-    }
-
-    function disableTax() external onlyOwner {
-        emit TaxEnabledUpdated(taxEnabled, false);
-        taxEnabled = false;
-    }
-
-    function recoverToken(address token, address to, uint256 amount) external onlyOwner {
+    function recoverToken(address token, address to, uint256 amount) external onlyOwner nonReentrant {
         require(token != address(0), "INVALID_TOKEN");
         require(to != address(0), "INVALID_RECEIVER");
 
@@ -274,11 +125,11 @@ contract MinimalDodoPMM {
         emit TokenRecovered(token, to, amount);
     }
 
-    function provideLiquidity(
-        uint256 baseAmountMax,
-        uint256 quoteAmountMax,
-        uint256 minShares
-    ) external nonReentrant returns (uint256 sharesMinted, uint256 baseAmount, uint256 quoteAmount) {
+    function provideLiquidity(uint256 baseAmountMax, uint256 quoteAmountMax, uint256 minShares)
+        external
+        nonReentrant
+        returns (uint256 sharesMinted, uint256 baseAmount, uint256 quoteAmount)
+    {
         require(baseAmountMax > 0 && quoteAmountMax > 0, "NO_LIQUIDITY");
         require(rStatus == RStatus.ONE, "NOT_BALANCED");
 
@@ -289,7 +140,7 @@ contract MinimalDodoPMM {
         } else {
             uint256 sharesFromBase = (baseAmountMax * totalSupply) / baseBalance;
             uint256 sharesFromQuote = (quoteAmountMax * totalSupply) / quoteBalance;
-            sharesMinted = _min(sharesFromBase, sharesFromQuote);
+            sharesMinted = sharesFromBase < sharesFromQuote ? sharesFromBase : sharesFromQuote;
             baseAmount = (sharesMinted * baseBalance) / totalSupply;
             quoteAmount = (sharesMinted * quoteBalance) / totalSupply;
         }
@@ -305,22 +156,29 @@ contract MinimalDodoPMM {
         emit LiquidityProvided(msg.sender, baseAmount, quoteAmount, sharesMinted);
     }
 
-    function withdrawLiquidity(
-        uint256 sharesBurned,
-        uint256 minBaseAmount,
-        uint256 minQuoteAmount
-    ) external nonReentrant returns (uint256 baseAmount, uint256 quoteAmount) {
-        require(rStatus == RStatus.ONE, "NOT_BALANCED");
+    function withdrawLiquidity(uint256 sharesBurned, uint256 minBaseAmount, uint256 minQuoteAmount)
+        external
+        nonReentrant
+        returns (uint256 baseAmount, uint256 quoteAmount)
+    {
         require(sharesBurned > 0, "ZERO_SHARES");
+        require(sharesBurned <= balanceOf[msg.sender], "INSUFFICIENT_SHARES");
 
-        baseAmount = (baseBalance * sharesBurned) / totalSupply;
-        quoteAmount = (quoteBalance * sharesBurned) / totalSupply;
+        uint256 supply = totalSupply;
+        uint256 baseTarget = targetBaseTokenAmount;
+        uint256 quoteTarget = targetQuoteTokenAmount;
+        baseAmount = (baseBalance * sharesBurned) / supply;
+        quoteAmount = (quoteBalance * sharesBurned) / supply;
         require(baseAmount >= minBaseAmount, "BASE_AMOUNT_NOT_ENOUGH");
         require(quoteAmount >= minQuoteAmount, "QUOTE_AMOUNT_NOT_ENOUGH");
 
         _burn(msg.sender, sharesBurned);
-        targetBaseTokenAmount -= baseAmount;
-        targetQuoteTokenAmount -= quoteAmount;
+        if (totalSupply == 0) {
+            _resetEmptyPool();
+        } else {
+            targetBaseTokenAmount = baseTarget - ((baseTarget * sharesBurned) / supply);
+            targetQuoteTokenAmount = quoteTarget - ((quoteTarget * sharesBurned) / supply);
+        }
         _baseTokenTransferOut(msg.sender, baseAmount);
         _quoteTokenTransferOut(msg.sender, quoteAmount);
 
@@ -328,97 +186,51 @@ contract MinimalDodoPMM {
     }
 
     function querySellBaseToken(uint256 amount) external view returns (uint256 receiveQuote) {
-        (receiveQuote, , , , , , ) = _querySellBaseToken(amount);
+        SellQuote memory quote = PMMQuoter.querySellBaseToken(_poolState(), _getPricingState(), amount);
+        return quote.receiveQuote;
     }
 
     function queryBuyBaseToken(uint256 amount) external view returns (uint256 payQuote) {
-        uint256 buyTaxQuote;
-        (payQuote, , , buyTaxQuote, , , ) = _queryBuyBaseToken(amount);
-        return payQuote + buyTaxQuote;
+        BuyQuote memory quote = PMMQuoter.queryBuyBaseToken(_poolState(), _getPricingState(), amount);
+        return quote.payQuote + quote.buyTaxQuote;
     }
 
-    function sellBaseToken(
-        uint256 amount,
-        uint256 minReceiveQuote
-    ) external nonReentrant whenTradingEnabled whenSellingEnabled returns (uint256 receiveQuote) {
-        uint256 lpFeeQuote;
-        uint256 maintainerFeeQuote;
-        uint256 sellTaxQuote;
-        RStatus newRStatus;
-        uint256 newQuoteTarget;
-        uint256 newBaseTarget;
-        (
-            receiveQuote,
-            lpFeeQuote,
-            maintainerFeeQuote,
-            sellTaxQuote,
-            newRStatus,
-            newQuoteTarget,
-            newBaseTarget
-        ) = _querySellBaseToken(amount);
-        require(receiveQuote >= minReceiveQuote, "SELL_BASE_RECEIVE_NOT_ENOUGH");
+    function sellBaseToken(uint256 amount, uint256 minReceiveQuote)
+        external
+        nonReentrant
+        whenTradingEnabled
+        whenSellingEnabled
+        returns (uint256 receiveQuote)
+    {
+        require(amount > 0, "ZERO_AMOUNT");
+        SellQuote memory quote = PMMQuoter.querySellBaseToken(_poolState(), _getPricingState(), amount);
+        require(quote.receiveQuote >= minReceiveQuote, "SELL_BASE_RECEIVE_NOT_ENOUGH");
 
-        _quoteTokenTransferOut(msg.sender, receiveQuote);
+        _quoteTokenTransferOut(msg.sender, quote.receiveQuote);
         _baseTokenTransferIn(msg.sender, amount);
+        _chargeSellFees(quote);
+        _applySellState(quote);
 
-        if (maintainerFeeQuote > 0) {
-            _quoteTokenTransferOut(maintainer, maintainerFeeQuote);
-            emit ChargeMaintainerFee(maintainer, false, maintainerFeeQuote);
-        }
-
-        if (sellTaxQuote > 0) {
-            _quoteTokenTransferOut(taxRecipient, sellTaxQuote);
-            emit ChargeTax(taxRecipient, sellTaxQuote, false);
-        }
-
-        targetBaseTokenAmount = newBaseTarget;
-        targetQuoteTokenAmount = newQuoteTarget;
-        rStatus = newRStatus;
-        targetQuoteTokenAmount += lpFeeQuote;
-
-        emit SellBaseToken(msg.sender, amount, receiveQuote);
+        emit SellBaseToken(msg.sender, amount, quote.receiveQuote);
+        return quote.receiveQuote;
     }
 
-    function buyBaseToken(
-        uint256 amount,
-        uint256 maxPayQuote
-    ) external nonReentrant whenTradingEnabled whenBuyingEnabled returns (uint256 totalPayQuote) {
-        uint256 payQuote;
-        uint256 lpFeeBase;
-        uint256 maintainerFeeBase;
-        uint256 buyTaxQuote;
-        RStatus newRStatus;
-        uint256 newQuoteTarget;
-        uint256 newBaseTarget;
-        (
-            payQuote,
-            lpFeeBase,
-            maintainerFeeBase,
-            buyTaxQuote,
-            newRStatus,
-            newQuoteTarget,
-            newBaseTarget
-        ) = _queryBuyBaseToken(amount);
-        totalPayQuote = payQuote + buyTaxQuote;
+    function buyBaseToken(uint256 amount, uint256 maxPayQuote)
+        external
+        nonReentrant
+        whenTradingEnabled
+        whenBuyingEnabled
+        returns (uint256 totalPayQuote)
+    {
+        require(amount > 0, "ZERO_AMOUNT");
+        BuyQuote memory quote = PMMQuoter.queryBuyBaseToken(_poolState(), _getPricingState(), amount);
+        totalPayQuote = quote.payQuote + quote.buyTaxQuote;
         require(totalPayQuote <= maxPayQuote, "BUY_BASE_COST_TOO_MUCH");
 
         _baseTokenTransferOut(msg.sender, amount);
-        _quoteTokenTransferIn(msg.sender, payQuote);
-
-        if (buyTaxQuote > 0) {
-            _quoteTokenTransferFrom(msg.sender, taxRecipient, buyTaxQuote);
-            emit ChargeTax(taxRecipient, buyTaxQuote, true);
-        }
-
-        if (maintainerFeeBase > 0) {
-            _baseTokenTransferOut(maintainer, maintainerFeeBase);
-            emit ChargeMaintainerFee(maintainer, true, maintainerFeeBase);
-        }
-
-        targetBaseTokenAmount = newBaseTarget;
-        targetQuoteTokenAmount = newQuoteTarget;
-        rStatus = newRStatus;
-        targetBaseTokenAmount += lpFeeBase;
+        _quoteTokenTransferIn(msg.sender, quote.payQuote);
+        _chargeBuyFees(quote);
+        _applyBuyState(quote);
 
         emit BuyBaseToken(msg.sender, amount, totalPayQuote);
     }
@@ -427,271 +239,105 @@ contract MinimalDodoPMM {
         if (rStatus == RStatus.ONE) {
             return (targetBaseTokenAmount, targetQuoteTokenAmount);
         }
-        if (rStatus == RStatus.BELOW_ONE) {
-            return (targetBaseTokenAmount, quoteBalance + _rBelowBackToOne());
-        }
-        return (baseBalance + _rAboveBackToOne(), targetQuoteTokenAmount);
+        TargetState memory target = PMMQuoter.expectedTarget(_poolState(), _getPricingState());
+        return (target.baseTarget, target.quoteTarget);
     }
 
     function getMidPrice() external view returns (uint256 midPrice) {
-        (uint256 baseTarget, uint256 quoteTarget) = getExpectedTarget();
-        if (rStatus == RStatus.BELOW_ONE) {
-            uint256 belowRatio = DecimalMath.divFloor((quoteTarget * quoteTarget) / quoteBalance, quoteBalance);
-            belowRatio = DecimalMath.ONE - k + DecimalMath.mul(k, belowRatio);
-            return DecimalMath.divFloor(getOraclePrice(), belowRatio);
+        return PMMQuoter.midPrice(_poolState(), _getPricingState());
+    }
+
+    function _poolState() internal view returns (PoolState memory pool) {
+        pool.rStatus = rStatus;
+        pool.baseBalance = baseBalance;
+        pool.quoteBalance = quoteBalance;
+        pool.targetBaseTokenAmount = targetBaseTokenAmount;
+        pool.targetQuoteTokenAmount = targetQuoteTokenAmount;
+        pool.lpFeeRate = lpFeeRate;
+        pool.maintainerFeeRate = maintainerFeeRate;
+        pool.buyTaxRate = buyTaxRate;
+        pool.sellTaxRate = sellTaxRate;
+        pool.taxEnabled = taxEnabled;
+        pool.taxRecipient = taxRecipient;
+    }
+
+    function _resetEmptyPool() internal {
+        targetBaseTokenAmount = 0;
+        targetQuoteTokenAmount = 0;
+        rStatus = RStatus.ONE;
+        if (tradingEnabled) {
+            emit TradingEnabledUpdated(tradingEnabled, false);
+            tradingEnabled = false;
+        }
+    }
+
+    function _chargeSellFees(SellQuote memory quote) internal {
+        if (quote.maintainerFeeQuote > 0) {
+            _quoteTokenTransferOut(maintainer, quote.maintainerFeeQuote);
+            emit ChargeMaintainerFee(maintainer, false, quote.maintainerFeeQuote);
         }
 
-        uint256 aboveRatio = DecimalMath.divFloor((baseTarget * baseTarget) / baseBalance, baseBalance);
-        aboveRatio = DecimalMath.ONE - k + DecimalMath.mul(k, aboveRatio);
-        return DecimalMath.mul(getOraclePrice(), aboveRatio);
+        if (quote.sellTaxQuote > 0) {
+            _quoteTokenTransferOut(taxRecipient, quote.sellTaxQuote);
+            emit ChargeTax(taxRecipient, quote.sellTaxQuote, false);
+        }
     }
 
-    function getOraclePrice() public view returns (uint256) {
-        return oracle.getPrice();
-    }
-
-    function _querySellBaseToken(
-        uint256 amount
-    )
-        internal
-        view
-        returns (
-            uint256 receiveQuote,
-            uint256 lpFeeQuote,
-            uint256 maintainerFeeQuote,
-            uint256 sellTaxQuote,
-            RStatus newRStatus,
-            uint256 newQuoteTarget,
-            uint256 newBaseTarget
-        )
-    {
-        (newBaseTarget, newQuoteTarget) = getExpectedTarget();
-
-        if (rStatus == RStatus.ONE) {
-            receiveQuote = _rOneSellBaseToken(amount, newQuoteTarget);
-            newRStatus = RStatus.BELOW_ONE;
-        } else if (rStatus == RStatus.ABOVE_ONE) {
-            uint256 backToOnePayBase = newBaseTarget - baseBalance;
-            uint256 backToOneReceiveQuote = quoteBalance - newQuoteTarget;
-
-            if (amount < backToOnePayBase) {
-                receiveQuote = _rAboveSellBaseToken(amount, baseBalance, newBaseTarget);
-                newRStatus = RStatus.ABOVE_ONE;
-                if (receiveQuote > backToOneReceiveQuote) {
-                    receiveQuote = backToOneReceiveQuote;
-                }
-            } else if (amount == backToOnePayBase) {
-                receiveQuote = backToOneReceiveQuote;
-                newRStatus = RStatus.ONE;
-            } else {
-                receiveQuote = backToOneReceiveQuote + _rOneSellBaseToken(amount - backToOnePayBase, newQuoteTarget);
-                newRStatus = RStatus.BELOW_ONE;
-            }
-        } else {
-            receiveQuote = _rBelowSellBaseToken(amount, quoteBalance, newQuoteTarget);
-            newRStatus = RStatus.BELOW_ONE;
+    function _chargeBuyFees(BuyQuote memory quote) internal {
+        if (quote.buyTaxQuote > 0) {
+            _quoteTokenTransferFrom(msg.sender, taxRecipient, quote.buyTaxQuote);
+            emit ChargeTax(taxRecipient, quote.buyTaxQuote, true);
         }
 
-        lpFeeQuote = DecimalMath.mul(receiveQuote, lpFeeRate);
-        maintainerFeeQuote = DecimalMath.mul(receiveQuote, maintainerFeeRate);
-        sellTaxQuote = _getSellTaxQuote(receiveQuote);
-        receiveQuote = receiveQuote - lpFeeQuote - maintainerFeeQuote - sellTaxQuote;
-    }
-
-    function _queryBuyBaseToken(
-        uint256 amount
-    )
-        internal
-        view
-        returns (
-            uint256 payQuote,
-            uint256 lpFeeBase,
-            uint256 maintainerFeeBase,
-            uint256 buyTaxQuote,
-            RStatus newRStatus,
-            uint256 newQuoteTarget,
-            uint256 newBaseTarget
-        )
-    {
-        (newBaseTarget, newQuoteTarget) = getExpectedTarget();
-
-        lpFeeBase = DecimalMath.mul(amount, lpFeeRate);
-        maintainerFeeBase = DecimalMath.mul(amount, maintainerFeeRate);
-        uint256 buyBaseAmount = amount + lpFeeBase + maintainerFeeBase;
-
-        if (rStatus == RStatus.ONE) {
-            payQuote = _rOneBuyBaseToken(buyBaseAmount, newBaseTarget);
-            newRStatus = RStatus.ABOVE_ONE;
-        } else if (rStatus == RStatus.ABOVE_ONE) {
-            payQuote = _rAboveBuyBaseToken(buyBaseAmount, baseBalance, newBaseTarget);
-            newRStatus = RStatus.ABOVE_ONE;
-        } else {
-            uint256 backToOnePayQuote = newQuoteTarget - quoteBalance;
-            uint256 backToOneReceiveBase = baseBalance - newBaseTarget;
-
-            if (buyBaseAmount < backToOneReceiveBase) {
-                payQuote = _rBelowBuyBaseToken(buyBaseAmount, quoteBalance, newQuoteTarget);
-                newRStatus = RStatus.BELOW_ONE;
-            } else if (buyBaseAmount == backToOneReceiveBase) {
-                payQuote = backToOnePayQuote;
-                newRStatus = RStatus.ONE;
-            } else {
-                payQuote = backToOnePayQuote + _rOneBuyBaseToken(buyBaseAmount - backToOneReceiveBase, newBaseTarget);
-                newRStatus = RStatus.ABOVE_ONE;
-            }
+        if (quote.maintainerFeeBase > 0) {
+            _baseTokenTransferOut(maintainer, quote.maintainerFeeBase);
+            emit ChargeMaintainerFee(maintainer, true, quote.maintainerFeeBase);
         }
-
-        buyTaxQuote = _getBuyTaxQuote(payQuote);
     }
 
-    function _rOneSellBaseToken(uint256 amount, uint256 targetQuoteAmount) internal view returns (uint256) {
-        uint256 q2 = PMMMath.solveQuadraticFunctionForTrade(
-            targetQuoteAmount,
-            targetQuoteAmount,
-            DecimalMath.mul(getOraclePrice(), amount),
-            false,
-            k
-        );
-        return targetQuoteAmount - q2;
+    function _applySellState(SellQuote memory quote) internal {
+        targetBaseTokenAmount = quote.newBaseTarget;
+        targetQuoteTokenAmount = quote.newQuoteTarget + quote.lpFeeQuote;
+        rStatus = quote.newRStatus;
     }
 
-    function _rOneBuyBaseToken(uint256 amount, uint256 targetBaseAmount) internal view returns (uint256) {
-        require(amount < targetBaseAmount, "DODO_BASE_BALANCE_NOT_ENOUGH");
-        return _rAboveIntegrate(targetBaseAmount, targetBaseAmount, targetBaseAmount - amount);
-    }
-
-    function _rBelowSellBaseToken(
-        uint256 amount,
-        uint256 currentQuoteBalance,
-        uint256 targetQuoteAmount
-    ) internal view returns (uint256) {
-        uint256 q2 = PMMMath.solveQuadraticFunctionForTrade(
-            targetQuoteAmount,
-            currentQuoteBalance,
-            DecimalMath.mul(getOraclePrice(), amount),
-            false,
-            k
-        );
-        return currentQuoteBalance - q2;
-    }
-
-    function _rBelowBuyBaseToken(
-        uint256 amount,
-        uint256 currentQuoteBalance,
-        uint256 targetQuoteAmount
-    ) internal view returns (uint256) {
-        uint256 q2 = PMMMath.solveQuadraticFunctionForTrade(
-            targetQuoteAmount,
-            currentQuoteBalance,
-            DecimalMath.mulCeil(getOraclePrice(), amount),
-            true,
-            k
-        );
-        return q2 - currentQuoteBalance;
-    }
-
-    function _rAboveBuyBaseToken(
-        uint256 amount,
-        uint256 currentBaseBalance,
-        uint256 targetBaseAmount
-    ) internal view returns (uint256) {
-        require(amount < currentBaseBalance, "DODO_BASE_BALANCE_NOT_ENOUGH");
-        return _rAboveIntegrate(targetBaseAmount, currentBaseBalance, currentBaseBalance - amount);
-    }
-
-    function _rAboveSellBaseToken(
-        uint256 amount,
-        uint256 currentBaseBalance,
-        uint256 targetBaseAmount
-    ) internal view returns (uint256) {
-        return _rAboveIntegrate(targetBaseAmount, currentBaseBalance + amount, currentBaseBalance);
-    }
-
-    function _rBelowBackToOne() internal view returns (uint256) {
-        uint256 spareBase = baseBalance - targetBaseTokenAmount;
-        uint256 fairAmount = DecimalMath.mul(spareBase, getOraclePrice());
-        uint256 newTargetQuote = PMMMath.solveQuadraticFunctionForTarget(quoteBalance, k, fairAmount);
-        return newTargetQuote - quoteBalance;
-    }
-
-    function _rAboveBackToOne() internal view returns (uint256) {
-        uint256 spareQuote = quoteBalance - targetQuoteTokenAmount;
-        uint256 fairAmount = DecimalMath.divFloor(spareQuote, getOraclePrice());
-        uint256 newTargetBase = PMMMath.solveQuadraticFunctionForTarget(baseBalance, k, fairAmount);
-        return newTargetBase - baseBalance;
-    }
-
-    function _rAboveIntegrate(uint256 b0, uint256 b1, uint256 b2) internal view returns (uint256) {
-        return PMMMath.generalIntegrate(b0, b1, b2, getOraclePrice(), k);
-    }
-
-    function _getSellTaxQuote(uint256 quoteAmount) internal view returns (uint256) {
-        if (!taxEnabled || sellTaxRate == 0) {
-            return 0;
-        }
-        require(taxRecipient != address(0), "INVALID_TAX_RECIPIENT");
-        return DecimalMath.mul(quoteAmount, sellTaxRate);
-    }
-
-    function _getBuyTaxQuote(uint256 quoteAmount) internal view returns (uint256) {
-        if (!taxEnabled || buyTaxRate == 0) {
-            return 0;
-        }
-        require(taxRecipient != address(0), "INVALID_TAX_RECIPIENT");
-        return DecimalMath.mul(quoteAmount, buyTaxRate);
+    function _applyBuyState(BuyQuote memory quote) internal {
+        targetBaseTokenAmount = quote.newBaseTarget + quote.lpFeeBase;
+        targetQuoteTokenAmount = quote.newQuoteTarget;
+        rStatus = quote.newRStatus;
     }
 
     function _baseTokenTransferIn(address from, uint256 amount) internal {
+        uint256 balanceBefore = baseToken.balanceOf(address(this));
         require(baseToken.transferFrom(from, address(this), amount), "BASE_TRANSFER_FROM_FAILED");
-        baseBalance += amount;
+        uint256 received = baseToken.balanceOf(address(this)) - balanceBefore;
+        require(received == amount, "BASE_TRANSFER_IN_MISMATCH");
+        baseBalance += received;
     }
 
     function _quoteTokenTransferIn(address from, uint256 amount) internal {
+        uint256 balanceBefore = quoteToken.balanceOf(address(this));
         require(quoteToken.transferFrom(from, address(this), amount), "QUOTE_TRANSFER_FROM_FAILED");
-        quoteBalance += amount;
+        uint256 received = quoteToken.balanceOf(address(this)) - balanceBefore;
+        require(received == amount, "QUOTE_TRANSFER_IN_MISMATCH");
+        quoteBalance += received;
     }
 
     function _baseTokenTransferOut(address to, uint256 amount) internal {
+        uint256 balanceBefore = baseToken.balanceOf(address(this));
         baseBalance -= amount;
         require(baseToken.transfer(to, amount), "BASE_TRANSFER_FAILED");
+        require(balanceBefore - baseToken.balanceOf(address(this)) == amount, "BASE_TRANSFER_OUT_MISMATCH");
     }
 
     function _quoteTokenTransferOut(address to, uint256 amount) internal {
+        uint256 balanceBefore = quoteToken.balanceOf(address(this));
         quoteBalance -= amount;
         require(quoteToken.transfer(to, amount), "QUOTE_TRANSFER_FAILED");
+        require(balanceBefore - quoteToken.balanceOf(address(this)) == amount, "QUOTE_TRANSFER_OUT_MISMATCH");
     }
 
     function _quoteTokenTransferFrom(address from, address to, uint256 amount) internal {
         require(quoteToken.transferFrom(from, to, amount), "QUOTE_TRANSFER_FROM_FAILED");
-    }
-
-    function _mint(address to, uint256 amount) internal {
-        totalSupply += amount;
-        balanceOf[to] += amount;
-        emit Transfer(address(0), to, amount);
-    }
-
-    function _burn(address from, uint256 amount) internal {
-        balanceOf[from] -= amount;
-        totalSupply -= amount;
-        emit Transfer(from, address(0), amount);
-    }
-
-    function _transfer(address from, address to, uint256 amount) internal {
-        require(to != address(0), "INVALID_RECEIVER");
-        balanceOf[from] -= amount;
-        balanceOf[to] += amount;
-        emit Transfer(from, to, amount);
-    }
-
-    function _min(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a < b ? a : b;
-    }
-
-    function _checkParameters() internal view {
-        require(k > 0, "K=0");
-        require(k < DecimalMath.ONE, "K>=1");
-        require(buyTaxRate < DecimalMath.ONE, "BUY_TAX_RATE>=1");
-        require(lpFeeRate + maintainerFeeRate + sellTaxRate < DecimalMath.ONE, "FEE_RATE>=1");
     }
 }

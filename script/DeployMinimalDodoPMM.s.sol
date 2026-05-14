@@ -48,5 +48,7 @@ contract DeployMinimalDodoPMMScript is Script {
         console2.log("lpFeeRate:", LP_FEE_RATE);
         console2.log("maintainerFeeRate:", MAINTAINER_FEE_RATE);
         console2.log("k:", DEFAULT_K);
+        console2.log("maxK:", pool.maxK());
+        console2.log("kGrowthPerSecond:", pool.kGrowthPerSecond());
     }
 }

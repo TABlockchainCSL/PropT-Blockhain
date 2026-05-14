@@ -1,66 +1,51 @@
-## Foundry
+# PropT Blockchain AMM
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Foundry project for a minimal DODO-style PMM pool used by the PropT trading data work.
 
-Foundry consists of:
+## Contracts
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+- `src/amm/MinimalDodoPMM.sol` - PMM pool with an embedded ERC20-style LP share token.
+- `src/amm/base/` - small base contracts for roles, configuration, reentrancy guard, and LP-token behavior.
+- `src/amm/interfaces/IPriceOracle.sol` - oracle interface. `getPrice()` returns `(price, updatedAt)` with price scaled to `1e18`.
+- `src/amm/libraries/PMMMath.sol` - PMM pricing and target math.
+- `src/amm/libraries/PMMQuoter.sol` - pure quote and target-state logic for buy/sell paths.
+- `src/amm/libraries/ValuationMath.sol` - age-adjusted `k` calculation for real-estate valuation decay.
+- `src/amm/types/PMMTypes.sol` - shared PMM enums and quote/state structs.
 
-## Documentation
+The pool intentionally supports only standard 18-decimal ERC20 base/quote tokens. Fee-on-transfer, rebasing, and non-standard transfer behavior are rejected by balance-delta checks.
+See [`src/amm/README.md`](src/amm/README.md) for the detailed design notes, including the PMM state machine, staleness-adjusted slippage model, fee accounting, circuit-breaker roles, and verified invariants.
 
-https://book.getfoundry.sh/
+## Safety Notes
 
-## Usage
+- Swaps require a non-zero trade amount.
+- Oracle prices must be non-zero, within owner-configured bounds, not timestamped in the future, and within the accepted valuation age.
+- Real-estate appraisal age is handled by an age-adjusted PMM `k`: older valuations are still tradable until expiry, but receive higher price impact through staleness-adjusted slippage.
+- LP withdrawals are proportional and allowed while the pool is unbalanced.
+- Trading is disabled automatically when the final LP share is withdrawn.
+- New liquidity can only be added when the pool is balanced.
+- Maintainer fees require a non-zero maintainer address.
 
-### Build
+## Common Commands
 
-```shell
-$ forge build
+```bash
+forge fmt --check
+forge build --sizes
+forge test -vvv
 ```
 
-### Test
+## Deployment
 
-```shell
-$ forge test
+```bash
+forge script script/DeployMinimalDodoPMM.s.sol:DeployMinimalDodoPMMScript \
+  --rpc-url "$RPC_URL" \
+  --broadcast
 ```
 
-### Format
+Required deployment environment:
 
-```shell
-$ forge fmt
-```
+- `PRIVATE_KEY`
+- `BASE_TOKEN`
+- `QUOTE_TOKEN`
+- `ORACLE`
 
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+Operational scripts live in `script/amm`.
