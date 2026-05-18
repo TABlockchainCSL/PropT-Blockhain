@@ -1,0 +1,85 @@
+'npx hardhat clean' running (wd: /home/angganion/Angga/Kuliah/Skripsi/Skripsi)
+'npx hardhat clean --global' running (wd: /home/angganion/Angga/Kuliah/Skripsi/Skripsi)
+'npx hardhat compile --force' running (wd: /home/angganion/Angga/Kuliah/Skripsi/Skripsi)
+INFO:Detectors:
+Detector: incorrect-equality
+PropertyRegistry._getActiveProperty(uint256) (contracts/core/PropertyRegistry.sol#203-211) uses a dangerous strict equality:
+	- _properties[propertyId].propertyId == 0 (contracts/core/PropertyRegistry.sol#206)
+PropertyRegistry.getProperty(uint256) (contracts/core/PropertyRegistry.sol#170-176) uses a dangerous strict equality:
+	- _properties[propertyId].propertyId == 0 (contracts/core/PropertyRegistry.sol#173)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#dangerous-strict-equalities
+INFO:Detectors:
+Detector: unused-return
+PropertyTokenFactory.createPropertyToken(IPropertyTokenFactory.CreateTokenParams) (contracts/core/PropertyTokenFactory.sol#75-125) ignores return value by propertyRegistry.registerProperty(params.propertyName,params.propertyAddress,params.totalValue,params.ipfsDocumentURI,tokenAddress) (contracts/core/PropertyTokenFactory.sol#105-111)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unused-return
+INFO:Detectors:
+Detector: reentrancy-benign
+Reentrancy in PropertyTokenFactory.createPropertyToken(IPropertyTokenFactory.CreateTokenParams) (contracts/core/PropertyTokenFactory.sol#75-125):
+	External calls:
+	- propertyRegistry.registerProperty(params.propertyName,params.propertyAddress,params.totalValue,params.ipfsDocumentURI,tokenAddress) (contracts/core/PropertyTokenFactory.sol#105-111)
+	State variables written after the call(s):
+	- _deployedTokens.push(tokenAddress) (contracts/core/PropertyTokenFactory.sol#113)
+	- _propertyIdToToken[propertyId] = tokenAddress (contracts/core/PropertyTokenFactory.sol#114)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-3
+INFO:Detectors:
+Detector: reentrancy-events
+Reentrancy in MultiSigWallet.executeTransaction(uint256) (contracts/governance-upgrade/MultiSigWallet.sol#137-152):
+	External calls:
+	- (success,None) = txn.to.call{value: txn.value}(txn.data) (contracts/governance-upgrade/MultiSigWallet.sol#148)
+	Event emitted after the call(s):
+	- TransactionExecuted(_txIndex) (contracts/governance-upgrade/MultiSigWallet.sol#151)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-4
+INFO:Detectors:
+Detector: timestamp
+PropertyRegistry.getProperty(uint256) (contracts/core/PropertyRegistry.sol#170-176) uses timestamp for comparisons
+	Dangerous comparisons:
+	- _properties[propertyId].propertyId == 0 (contracts/core/PropertyRegistry.sol#173)
+PropertyRegistry._getActiveProperty(uint256) (contracts/core/PropertyRegistry.sol#203-211) uses timestamp for comparisons
+	Dangerous comparisons:
+	- _properties[propertyId].propertyId == 0 (contracts/core/PropertyRegistry.sol#206)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: costly-loop
+MultiSigWallet.removeOwner(address) (contracts/governance-upgrade/MultiSigWallet.sol#178-204) has costly operations inside a loop:
+	- owners.pop() (contracts/governance-upgrade/MultiSigWallet.sol#188)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#costly-operations-inside-a-loop
+INFO:Detectors:
+Detector: low-level-calls
+Low level call in MultiSigWallet.executeTransaction(uint256) (contracts/governance-upgrade/MultiSigWallet.sol#137-152):
+	- (success,None) = txn.to.call{value: txn.value}(txn.data) (contracts/governance-upgrade/MultiSigWallet.sol#148)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
+INFO:Detectors:
+Detector: naming-convention
+Variable KYCRegistry.__gap (contracts/core/KYCRegistry.sol#187) is not in mixedCase
+Variable PropertyRegistry.__gap (contracts/core/PropertyRegistry.sol#219) is not in mixedCase
+Parameter PropertyToken.initialize(string,string,uint256,uint256,address,uint8,address)._name (contracts/core/PropertyToken.sol#60) is not in mixedCase
+Parameter PropertyToken.initialize(string,string,uint256,uint256,address,uint8,address)._symbol (contracts/core/PropertyToken.sol#61) is not in mixedCase
+Parameter PropertyToken.initialize(string,string,uint256,uint256,address,uint8,address)._totalSupply (contracts/core/PropertyToken.sol#62) is not in mixedCase
+Parameter PropertyToken.initialize(string,string,uint256,uint256,address,uint8,address)._propertyId (contracts/core/PropertyToken.sol#63) is not in mixedCase
+Parameter PropertyToken.initialize(string,string,uint256,uint256,address,uint8,address)._kycRegistry (contracts/core/PropertyToken.sol#64) is not in mixedCase
+Parameter PropertyToken.initialize(string,string,uint256,uint256,address,uint8,address)._requiredKYCLevel (contracts/core/PropertyToken.sol#65) is not in mixedCase
+Parameter PropertyToken.initialize(string,string,uint256,uint256,address,uint8,address)._owner (contracts/core/PropertyToken.sol#66) is not in mixedCase
+Variable PropertyToken.__gap (contracts/core/PropertyToken.sol#165) is not in mixedCase
+Parameter PropertyTokenFactory.initialize(address,address,address)._kycRegistry (contracts/core/PropertyTokenFactory.sol#54) is not in mixedCase
+Parameter PropertyTokenFactory.initialize(address,address,address)._propertyRegistry (contracts/core/PropertyTokenFactory.sol#55) is not in mixedCase
+Parameter PropertyTokenFactory.initialize(address,address,address)._tokenBeacon (contracts/core/PropertyTokenFactory.sol#56) is not in mixedCase
+Variable PropertyTokenFactory.__gap (contracts/core/PropertyTokenFactory.sol#164) is not in mixedCase
+Parameter MultiSigWallet.submitTransaction(address,uint256,bytes)._to (contracts/governance-upgrade/MultiSigWallet.sol#104) is not in mixedCase
+Parameter MultiSigWallet.submitTransaction(address,uint256,bytes)._value (contracts/governance-upgrade/MultiSigWallet.sol#105) is not in mixedCase
+Parameter MultiSigWallet.submitTransaction(address,uint256,bytes)._data (contracts/governance-upgrade/MultiSigWallet.sol#106) is not in mixedCase
+Parameter MultiSigWallet.confirmTransaction(uint256)._txIndex (contracts/governance-upgrade/MultiSigWallet.sol#125) is not in mixedCase
+Parameter MultiSigWallet.executeTransaction(uint256)._txIndex (contracts/governance-upgrade/MultiSigWallet.sol#138) is not in mixedCase
+Parameter MultiSigWallet.revokeConfirmation(uint256)._txIndex (contracts/governance-upgrade/MultiSigWallet.sol#156) is not in mixedCase
+Parameter MultiSigWallet.addOwner(address)._owner (contracts/governance-upgrade/MultiSigWallet.sol#167) is not in mixedCase
+Parameter MultiSigWallet.removeOwner(address)._owner (contracts/governance-upgrade/MultiSigWallet.sol#178) is not in mixedCase
+Parameter MultiSigWallet.changeThreshold(uint256)._threshold (contracts/governance-upgrade/MultiSigWallet.sol#207) is not in mixedCase
+Parameter MultiSigWallet.getTransaction(uint256)._txIndex (contracts/governance-upgrade/MultiSigWallet.sol#225) is not in mixedCase
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+INFO:Detectors:
+Detector: unused-state
+KYCRegistry.__gap (contracts/core/KYCRegistry.sol#187) is never used in KYCRegistry (contracts/core/KYCRegistry.sol#16-188)
+PropertyRegistry.__gap (contracts/core/PropertyRegistry.sol#219) is never used in PropertyRegistry (contracts/core/PropertyRegistry.sol#16-220)
+PropertyToken.__gap (contracts/core/PropertyToken.sol#165) is never used in PropertyToken (contracts/core/PropertyToken.sol#23-166)
+PropertyTokenFactory.__gap (contracts/core/PropertyTokenFactory.sol#164) is never used in PropertyTokenFactory (contracts/core/PropertyTokenFactory.sol#24-165)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unused-state-variable
+INFO:Slither:. analyzed (66 contracts with 101 detectors), 37 result(s) found
