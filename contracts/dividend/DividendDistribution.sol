@@ -151,7 +151,7 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
         if (maxEpochs < 1) revert MaxEpochsZero();
 
         // [CHECK] KYC
-        if (kycRegistry.getKYCLevel(msg.sender) == 0)
+        if (!kycRegistry.isVerified(msg.sender))
             revert InvestorNotKYCVerified(msg.sender);
 
         uint256 start = claimedUpToEpoch[msg.sender];

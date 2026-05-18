@@ -50,10 +50,10 @@ contract DividendDistributionTest is Test {
         kyc = KYCRegistry(address(kycProxy));
 
         // Add KYC for all actors
-        kyc.addUser(owner, 1);
-        kyc.addUser(spv, 2);
-        kyc.addUser(investor1, 1);
-        kyc.addUser(investor2, 1);
+        kyc.addUser(owner);
+        kyc.addUser(spv);
+        kyc.addUser(investor1);
+        kyc.addUser(investor2);
 
         // ── Deploy PropertyToken via BeaconProxy ────────────
         PropertyToken tokenImpl = new PropertyToken();
@@ -68,7 +68,6 @@ contract DividendDistributionTest is Test {
                     TOTAL_SUPPLY,
                     1,                    // propertyId
                     address(kyc),
-                    1,                    // requiredKYCLevel = Basic
                     owner
                 )
             )
@@ -322,7 +321,7 @@ contract DividendDistributionTest is Test {
     function test_claimDividends_zeroBalanceInvestor() public {
         // Create a KYC user that has 0 tokens
         address zeroHolder = makeAddr("zeroHolder");
-        kyc.addUser(zeroHolder, 1);
+        kyc.addUser(zeroHolder);
 
         vm.startPrank(spv);
         usdc.approve(address(dividend), 1000e6);
@@ -360,7 +359,7 @@ contract DividendDistributionTest is Test {
 
         // investor1 transfers ALL tokens to a new address AFTER the snapshot
         address attacker = address(0xBEEF);
-        kyc.addUser(attacker, 1);
+        kyc.addUser(attacker);
 
         vm.prank(investor1);
         token.transfer(attacker, 700e18);
@@ -417,7 +416,7 @@ contract DividendDistributionTest is Test {
 
         // Create a new investor that has NOT delegated
         address noDelegateInvestor = makeAddr("noDelegate");
-        kyc.addUser(noDelegateInvestor, 1);
+        kyc.addUser(noDelegateInvestor);
 
         // Without delegate, getPastVotes returns 0
         // so pending should be 0 (investor gets no dividends)
