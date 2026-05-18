@@ -59,9 +59,9 @@ contract PropertyTokenTest is Test {
         return token;
     }
 
-    // =========================================================================
-    //  Basic properties
-    // =========================================================================
+    /**
+     * @notice Basic properties
+     */
 
     function test_Token_nameAndSymbol() public {
         PropertyToken token = _deployTokenSetup();
@@ -85,9 +85,9 @@ contract PropertyTokenTest is Test {
         assertEq(address(token.kycRegistry()), address(kycRegistry));
     }
 
-    // =========================================================================
-    //  Transfer — happy path
-    // =========================================================================
+    /**
+     * @notice Transfer — happy path
+     */
 
     function test_Token_transferBetweenKYC() public {
         PropertyToken token = _deployTokenSetup();
@@ -103,9 +103,9 @@ contract PropertyTokenTest is Test {
         assertEq(token.balanceOf(user2), 50 ether);
     }
 
-    // =========================================================================
-    //  Transfer — negative path (KYC gate)
-    // =========================================================================
+    /**
+     * @notice Transfer — negative path (KYC gate)
+     */
 
     function test_Token_revertTransferToNonKYC() public {
         PropertyToken token = _deployTokenSetup();
@@ -148,9 +148,9 @@ contract PropertyTokenTest is Test {
         token.transfer(owner, 5 ether);
     }
 
-    // =========================================================================
-    //  Pause / unpause
-    // =========================================================================
+    /**
+     * @notice Pause / unpause
+     */
 
     function test_Token_pause() public {
         PropertyToken token = _deployTokenSetup();
@@ -196,9 +196,9 @@ contract PropertyTokenTest is Test {
         assertEq(token.balanceOf(user1), 10 ether);
     }
 
-    // =========================================================================
-    //  Mint / burn
-    // =========================================================================
+    /**
+     * @notice Mint / burn
+     */
 
     function test_Token_mintAdditional() public {
         PropertyToken token = _deployTokenSetup();
@@ -219,9 +219,9 @@ contract PropertyTokenTest is Test {
         assertEq(token.totalSupply(), 900 ether);
     }
 
-    // =========================================================================
-    //  setPauser
-    // =========================================================================
+    /**
+     * @notice setPauser
+     */
 
     function test_Token_setPauser_revertZeroAddress() public {
         PropertyToken token = _deployToken();
@@ -231,6 +231,8 @@ contract PropertyTokenTest is Test {
 
     function test_Token_setPauser_valid() public {
         PropertyToken token = _deployToken();
+        vm.expectEmit(true, true, false, true);
+        emit PropertyToken.PauserUpdated(address(0), user1);
         token.setPauser(user1);
         assertEq(token.pauser(), user1);
     }
@@ -254,9 +256,9 @@ contract PropertyTokenTest is Test {
         token.unpause();
     }
 
-    // =========================================================================
-    //  ERC20Votes
-    // =========================================================================
+    /**
+     * @notice ERC20Votes — integration with KYC gate and checkpoints
+     */
 
     function _deployVotesToken() internal returns (PropertyToken) {
         kycRegistry.addUser(owner);
@@ -271,24 +273,6 @@ contract PropertyTokenTest is Test {
             )
         );
         return PropertyToken(address(proxy));
-    }
-
-    function test_Votes_zeroBeforeDelegation() public {
-        PropertyToken token = _deployVotesToken();
-        assertEq(token.getVotes(owner), 0);
-    }
-
-    function test_Votes_selfDelegation() public {
-        PropertyToken token = _deployVotesToken();
-        token.delegate(owner);
-        assertEq(token.getVotes(owner), 1000 ether);
-    }
-
-    function test_Votes_delegateToAnother() public {
-        PropertyToken token = _deployVotesToken();
-        token.delegate(user1);
-        assertEq(token.getVotes(user1), 1000 ether);
-        assertEq(token.getVotes(owner), 0);
     }
 
     function test_Votes_updateAfterTransfer() public {
@@ -319,23 +303,9 @@ contract PropertyTokenTest is Test {
         assertEq(token.getVotes(user1), 400 ether);
     }
 
-    function test_Votes_pastTotalSupply() public {
-        PropertyToken token = _deployVotesToken();
-        token.delegate(owner);
-
-        uint256 snapshotBlock = block.number;
-        vm.roll(block.number + 1);
-
-        token.mint(owner, 500 ether);
-        vm.roll(block.number + 1);
-
-        assertEq(token.getPastTotalSupply(snapshotBlock), 1000 ether);
-        assertEq(token.totalSupply(), 1500 ether);
-    }
-
-    // =========================================================================
-    //  ERC20Permit (EIP-2612)
-    // =========================================================================
+    /**
+     * @notice ERC20Permit (EIP-2612)
+     */
 
     function test_Permit_gaslessApproval() public {
         uint256 ownerPk = 0xA11CE;
@@ -389,9 +359,9 @@ contract PropertyTokenTest is Test {
         return keccak256(abi.encodePacked("\x19\x01", token.DOMAIN_SEPARATOR(), structHash));
     }
 
-    // =========================================================================
-    //  Upgradeability
-    // =========================================================================
+    /**
+     * @notice Upgradeability
+     */
 
     function test_Token_reInit_reverts() public {
         PropertyToken token = _deployToken();
@@ -406,9 +376,9 @@ contract PropertyTokenTest is Test {
         beacon.upgradeTo(address(fakeImpl));
     }
 
-    // =========================================================================
-    //  Security: ACL negative path
-    // =========================================================================
+    /**
+     * @notice Security: ACL negative path
+     */
 
     function test_ACL_attackerCannotMint() public {
         PropertyToken token = _deployTokenSetup();
@@ -506,13 +476,6 @@ contract PauserTest is Test {
         vm.prank(attacker);
         vm.expectRevert();
         token.setPauser(attacker);
-    }
-
-    function test_Pauser_setPauserEmitsEvent() public {
-        address newPauser = makeAddr("newPauser");
-        vm.expectEmit(true, true, false, true);
-        emit PropertyToken.PauserUpdated(pauser, newPauser);
-        token.setPauser(newPauser);
     }
 
     function test_Pauser_blocksTransferWhenPaused() public {

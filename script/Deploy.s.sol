@@ -10,7 +10,7 @@ import "../contracts/core/KYCRegistry.sol";
 import "../contracts/core/PropertyRegistry.sol";
 import "../contracts/core/PropertyToken.sol";
 import "../contracts/core/PropertyTokenFactory.sol";
-import "../contracts/governance/MultiSigWallet.sol";
+import "../contracts/governance-upgrade/MultiSigWallet.sol";
 
 contract Deploy is Script {
     function run() external {

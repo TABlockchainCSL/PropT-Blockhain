@@ -35,12 +35,22 @@ contract FuzzTest is Test {
 
         KYCRegistry kycImpl = new KYCRegistry();
         kycRegistry = KYCRegistry(
-            address(new ERC1967Proxy(address(kycImpl), abi.encodeCall(KYCRegistry.initialize, ())))
+            address(
+                new ERC1967Proxy(
+                    address(kycImpl),
+                    abi.encodeCall(KYCRegistry.initialize, ())
+                )
+            )
         );
 
         PropertyRegistry regImpl = new PropertyRegistry();
         propertyRegistry = PropertyRegistry(
-            address(new ERC1967Proxy(address(regImpl), abi.encodeCall(PropertyRegistry.initialize, ())))
+            address(
+                new ERC1967Proxy(
+                    address(regImpl),
+                    abi.encodeCall(PropertyRegistry.initialize, ())
+                )
+            )
         );
 
         PropertyToken tokenImpl = new PropertyToken();
@@ -53,13 +63,20 @@ contract FuzzTest is Test {
                     address(factoryImpl),
                     abi.encodeCall(
                         PropertyTokenFactory.initialize,
-                        (address(kycRegistry), address(propertyRegistry), address(beacon))
+                        (
+                            address(kycRegistry),
+                            address(propertyRegistry),
+                            address(beacon)
+                        )
                     )
                 )
             )
         );
 
-        propertyRegistry.grantRole(propertyRegistry.REGISTRY_ADMIN_ROLE(), address(factory));
+        propertyRegistry.grantRole(
+            propertyRegistry.REGISTRY_ADMIN_ROLE(),
+            address(factory)
+        );
     }
 
     // --- Helpers ---
@@ -148,22 +165,31 @@ contract FuzzTest is Test {
     //  testFuzz_RegisterProperty_AcceptsAnyNonZero
     //  registerProperty accepts any non-zero totalValue; propertyId is monotonic.
     // =========================================================================
-    function testFuzz_RegisterProperty_AcceptsAnyNonZero(uint256 totalValue) public {
+    function testFuzz_RegisterProperty_AcceptsAnyNonZero(
+        uint256 totalValue
+    ) public {
         totalValue = bound(totalValue, 1, type(uint128).max);
 
         uint256 idBefore = propertyRegistry.getNextPropertyId();
-        address tokenMock =
-            address(uint160(uint256(keccak256(abi.encode(totalValue)))));
+        address tokenMock = address(
+            uint160(uint256(keccak256(abi.encode(totalValue))))
+        );
         vm.assume(tokenMock != address(0));
 
         uint256 assignedId = propertyRegistry.registerProperty(
-            "Fuzz Property", "Jl. Fuzz No. 1", totalValue, "ipfs://fuzz", tokenMock
+            "Fuzz Property",
+            "Jl. Fuzz No. 1",
+            totalValue,
+            "ipfs://fuzz",
+            tokenMock
         );
 
         assertEq(assignedId, idBefore);
         assertEq(propertyRegistry.getNextPropertyId(), idBefore + 1);
 
-        IPropertyRegistry.Property memory prop = propertyRegistry.getProperty(assignedId);
+        IPropertyRegistry.Property memory prop = propertyRegistry.getProperty(
+            assignedId
+        );
         assertEq(prop.totalValue, totalValue);
         assertTrue(prop.isActive);
     }

@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "@openzeppelin/contracts/governance/TimelockController.sol";
 
-import "../../contracts/governance/MultiSigWallet.sol";
+import "../../contracts/governance-upgrade/MultiSigWallet.sol";
 import "../../contracts/core/KYCRegistry.sol";
 import "../../contracts/core/PropertyRegistry.sol";
 import "../../contracts/core/PropertyToken.sol";
@@ -159,9 +159,9 @@ contract TimelockMultiSigIntegrationTest is Test {
         assertFalse(timelockController.isOperationPending(operationId));
     }
 
-    // =========================================================================
-    //  Security: attacker cannot use Timelock
-    // =========================================================================
+    /**
+     * @notice Security tests ensuring that an attacker cannot bypass the TimelockController.
+     */
 
     function test_TimelockSecurity_attackerCannotSchedule() public {
         address[] memory proposers = new address[](1);
@@ -293,9 +293,9 @@ contract OperatorDirectFlowTest is Test {
         beacon.transferOwnership(timelock);
     }
 
-    // =========================================================================
-    //  Tier 1 — operator EOAs can act without governance delay
-    // =========================================================================
+    /**
+     * @notice Tier 1 operations: EOA operators can perform routine tasks directly without delay.
+     */
 
     function test_Tier1_kycOperator_addUserDirect() public {
         vm.prank(kycOperator);
@@ -350,9 +350,9 @@ contract OperatorDirectFlowTest is Test {
         assertEq(factory.getDeployedTokenCount(), 1);
     }
 
-    // =========================================================================
-    //  Tier 2 — critical ops blocked at operator level, require Timelock
-    // =========================================================================
+    /**
+     * @notice Tier 2 operations: Critical tasks are blocked at the operator level and require Timelock.
+     */
 
     function test_Tier2_kycOperator_cannotUpgradeKYCRegistry() public {
         KYCRegistry v2 = new KYCRegistry();
@@ -406,9 +406,9 @@ contract OperatorDirectFlowTest is Test {
         kycRegistry.addUser(investor1);
     }
 
-    // =========================================================================
-    //  Cross-cutting: random actors locked out
-    // =========================================================================
+    /**
+     * @notice Access control checks to ensure unauthorized actors are restricted.
+     */
 
     function test_Acl_randomActorCannotAddKYC() public {
         vm.prank(makeAddr("random"));
