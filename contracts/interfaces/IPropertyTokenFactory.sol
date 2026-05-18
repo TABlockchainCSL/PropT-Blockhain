@@ -14,21 +14,15 @@ interface IPropertyTokenFactory {
         string propertyAddress;
         uint256 totalValue;
         string ipfsDocumentURI;
-        uint8 requiredKYCLevel;
+        address tokenOwner;
     }
 
     event PropertyTokenCreated(
-        uint256 indexed propertyId,
-        address indexed tokenAddress,
-        string name,
-        string symbol,
-        uint256 totalSupply
+        uint256 indexed propertyId, address indexed tokenAddress, string name, string symbol, uint256 totalSupply
     );
 
     /// @notice Get token address by property ID
-    function getTokenByPropertyId(
-        uint256 propertyId
-    ) external view returns (address);
+    function getTokenByPropertyId(uint256 propertyId) external view returns (address);
 
     /// @notice List all deployed tokens
     function getDeployedTokens() external view returns (address[] memory);

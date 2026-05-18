@@ -13,14 +13,8 @@ import "../interfaces/IPropertyRegistry.sol";
  *         this contract only stores the CID/URI references.
  * @dev Upgradeable via UUPS proxy pattern.
  */
-contract PropertyRegistry is
-    Initializable,
-    AccessControlUpgradeable,
-    UUPSUpgradeable,
-    IPropertyRegistry
-{
-    bytes32 public constant REGISTRY_ADMIN_ROLE =
-        keccak256("REGISTRY_ADMIN_ROLE");
+contract PropertyRegistry is Initializable, AccessControlUpgradeable, UUPSUpgradeable, IPropertyRegistry {
+    bytes32 public constant REGISTRY_ADMIN_ROLE = keccak256("REGISTRY_ADMIN_ROLE");
 
     uint256 private _nextPropertyId;
     mapping(uint256 => Property) private _properties;
@@ -60,14 +54,17 @@ contract PropertyRegistry is
         address tokenAddress
     ) external onlyRole(REGISTRY_ADMIN_ROLE) returns (uint256) {
         if (bytes(propertyName).length == 0) revert EmptyString("propertyName");
-        if (bytes(propertyAddress).length == 0)
+        if (bytes(propertyAddress).length == 0) {
             revert EmptyString("propertyAddress");
-        if (bytes(ipfsDocumentURI).length == 0)
+        }
+        if (bytes(ipfsDocumentURI).length == 0) {
             revert EmptyString("ipfsDocumentURI");
+        }
         if (totalValue == 0) revert ZeroValue("totalValue");
         if (tokenAddress == address(0)) revert ZeroAddress();
-        if (_tokenToProperty[tokenAddress] != 0)
+        if (_tokenToProperty[tokenAddress] != 0) {
             revert TokenAlreadyRegistered(tokenAddress);
+        }
 
         uint256 propertyId = _nextPropertyId++;
 
@@ -86,12 +83,7 @@ contract PropertyRegistry is
         _propertyIds.push(propertyId);
         _tokenToProperty[tokenAddress] = propertyId;
 
-        emit PropertyRegistered(
-            propertyId,
-            propertyName,
-            tokenAddress,
-            ipfsDocumentURI
-        );
+        emit PropertyRegistered(propertyId, propertyName, tokenAddress, ipfsDocumentURI);
         return propertyId;
     }
 
@@ -100,10 +92,7 @@ contract PropertyRegistry is
      * @param propertyId Property ID
      * @param newURI New IPFS CID/URI
      */
-    function updateIPFSDocument(
-        uint256 propertyId,
-        string calldata newURI
-    ) external onlyRole(REGISTRY_ADMIN_ROLE) {
+    function updateIPFSDocument(uint256 propertyId, string calldata newURI) external onlyRole(REGISTRY_ADMIN_ROLE) {
         Property storage prop = _getActiveProperty(propertyId);
         if (bytes(newURI).length == 0) revert EmptyString("ipfsDocumentURI");
 
@@ -115,10 +104,7 @@ contract PropertyRegistry is
     }
 
     /// @notice Update property name
-    function updatePropertyName(
-        uint256 propertyId,
-        string calldata newName
-    ) external onlyRole(REGISTRY_ADMIN_ROLE) {
+    function updatePropertyName(uint256 propertyId, string calldata newName) external onlyRole(REGISTRY_ADMIN_ROLE) {
         Property storage prop = _getActiveProperty(propertyId);
         if (bytes(newName).length == 0) revert EmptyString("propertyName");
 
@@ -129,10 +115,7 @@ contract PropertyRegistry is
     }
 
     /// @notice Update total property value
-    function updatePropertyValue(
-        uint256 propertyId,
-        uint256 newValue
-    ) external onlyRole(REGISTRY_ADMIN_ROLE) {
+    function updatePropertyValue(uint256 propertyId, uint256 newValue) external onlyRole(REGISTRY_ADMIN_ROLE) {
         Property storage prop = _getActiveProperty(propertyId);
         if (newValue == 0) revert ZeroValue("totalValue");
 
@@ -143,9 +126,7 @@ contract PropertyRegistry is
     }
 
     /// @notice Deactivate a property (soft delete, data is preserved)
-    function deactivateProperty(
-        uint256 propertyId
-    ) external onlyRole(REGISTRY_ADMIN_ROLE) {
+    function deactivateProperty(uint256 propertyId) external onlyRole(REGISTRY_ADMIN_ROLE) {
         Property storage prop = _getActiveProperty(propertyId);
         prop.isActive = false;
         prop.updatedAt = block.timestamp;
@@ -154,11 +135,10 @@ contract PropertyRegistry is
     }
 
     /// @notice Re-activate a previously deactivated property
-    function reactivateProperty(
-        uint256 propertyId
-    ) external onlyRole(REGISTRY_ADMIN_ROLE) {
-        if (_properties[propertyId].propertyId == 0)
+    function reactivateProperty(uint256 propertyId) external onlyRole(REGISTRY_ADMIN_ROLE) {
+        if (_properties[propertyId].propertyId == 0) {
             revert PropertyNotFound(propertyId);
+        }
         Property storage prop = _properties[propertyId];
         prop.isActive = true;
         prop.updatedAt = block.timestamp;
@@ -167,18 +147,15 @@ contract PropertyRegistry is
     }
 
     /// @notice Get property data by ID
-    function getProperty(
-        uint256 propertyId
-    ) external view returns (Property memory) {
-        if (_properties[propertyId].propertyId == 0)
+    function getProperty(uint256 propertyId) external view returns (Property memory) {
+        if (_properties[propertyId].propertyId == 0) {
             revert PropertyNotFound(propertyId);
+        }
         return _properties[propertyId];
     }
 
     /// @notice Get property data by its token address
-    function getPropertyByToken(
-        address tokenAddress
-    ) external view returns (Property memory) {
+    function getPropertyByToken(address tokenAddress) external view returns (Property memory) {
         uint256 propertyId = _tokenToProperty[tokenAddress];
         if (propertyId == 0) revert PropertyNotFound(0);
         return _properties[propertyId];
@@ -200,20 +177,18 @@ contract PropertyRegistry is
     }
 
     /// @dev Helper to get a property that must exist and be active
-    function _getActiveProperty(
-        uint256 propertyId
-    ) internal view returns (Property storage) {
-        if (_properties[propertyId].propertyId == 0)
+    function _getActiveProperty(uint256 propertyId) internal view returns (Property storage) {
+        if (_properties[propertyId].propertyId == 0) {
             revert PropertyNotFound(propertyId);
-        if (!_properties[propertyId].isActive)
+        }
+        if (!_properties[propertyId].isActive) {
             revert PropertyNotActive(propertyId);
+        }
         return _properties[propertyId];
     }
 
     /// @dev Only DEFAULT_ADMIN_ROLE can authorize upgrades
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     /// @dev Reserved storage gap for future upgrades
     uint256[45] private __gap;

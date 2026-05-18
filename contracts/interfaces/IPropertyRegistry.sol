@@ -25,17 +25,10 @@ interface IPropertyRegistry {
     }
 
     event PropertyRegistered(
-        uint256 indexed propertyId,
-        string propertyName,
-        address indexed tokenAddress,
-        string ipfsDocumentURI
+        uint256 indexed propertyId, string propertyName, address indexed tokenAddress, string ipfsDocumentURI
     );
     event PropertyUpdated(uint256 indexed propertyId, string field);
-    event IPFSDocumentUpdated(
-        uint256 indexed propertyId,
-        string oldURI,
-        string newURI
-    );
+    event IPFSDocumentUpdated(uint256 indexed propertyId, string oldURI, string newURI);
     event PropertyDeactivated(uint256 indexed propertyId);
     event PropertyReactivated(uint256 indexed propertyId);
 
@@ -47,14 +40,10 @@ interface IPropertyRegistry {
     error ZeroAddress();
 
     /// @notice Get property data by ID
-    function getProperty(
-        uint256 propertyId
-    ) external view returns (Property memory);
+    function getProperty(uint256 propertyId) external view returns (Property memory);
 
     /// @notice Get property data by its token address
-    function getPropertyByToken(
-        address tokenAddress
-    ) external view returns (Property memory);
+    function getPropertyByToken(address tokenAddress) external view returns (Property memory);
 
     /// @notice How many properties are registered
     function getPropertyCount() external view returns (uint256);

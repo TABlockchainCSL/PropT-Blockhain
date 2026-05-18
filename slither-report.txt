@@ -23,11 +23,11 @@ Reentrancy in PropertyTokenFactory.createPropertyToken(IPropertyTokenFactory.Cre
 Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-3
 INFO:Detectors:
 Detector: reentrancy-events
-Reentrancy in MultiSigWallet.executeTransaction(uint256) (contracts/governance/MultiSigWallet.sol#137-152):
+Reentrancy in MultiSigWallet.executeTransaction(uint256) (contracts/governance-upgrade/MultiSigWallet.sol#137-152):
 	External calls:
-	- (success,None) = txn.to.call{value: txn.value}(txn.data) (contracts/governance/MultiSigWallet.sol#148)
+	- (success,None) = txn.to.call{value: txn.value}(txn.data) (contracts/governance-upgrade/MultiSigWallet.sol#148)
 	Event emitted after the call(s):
-	- TransactionExecuted(_txIndex) (contracts/governance/MultiSigWallet.sol#151)
+	- TransactionExecuted(_txIndex) (contracts/governance-upgrade/MultiSigWallet.sol#151)
 Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-4
 INFO:Detectors:
 Detector: timestamp
@@ -40,13 +40,13 @@ PropertyRegistry._getActiveProperty(uint256) (contracts/core/PropertyRegistry.so
 Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
 INFO:Detectors:
 Detector: costly-loop
-MultiSigWallet.removeOwner(address) (contracts/governance/MultiSigWallet.sol#178-204) has costly operations inside a loop:
-	- owners.pop() (contracts/governance/MultiSigWallet.sol#188)
+MultiSigWallet.removeOwner(address) (contracts/governance-upgrade/MultiSigWallet.sol#178-204) has costly operations inside a loop:
+	- owners.pop() (contracts/governance-upgrade/MultiSigWallet.sol#188)
 Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#costly-operations-inside-a-loop
 INFO:Detectors:
 Detector: low-level-calls
-Low level call in MultiSigWallet.executeTransaction(uint256) (contracts/governance/MultiSigWallet.sol#137-152):
-	- (success,None) = txn.to.call{value: txn.value}(txn.data) (contracts/governance/MultiSigWallet.sol#148)
+Low level call in MultiSigWallet.executeTransaction(uint256) (contracts/governance-upgrade/MultiSigWallet.sol#137-152):
+	- (success,None) = txn.to.call{value: txn.value}(txn.data) (contracts/governance-upgrade/MultiSigWallet.sol#148)
 Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
 INFO:Detectors:
 Detector: naming-convention
@@ -64,16 +64,16 @@ Parameter PropertyTokenFactory.initialize(address,address,address)._kycRegistry 
 Parameter PropertyTokenFactory.initialize(address,address,address)._propertyRegistry (contracts/core/PropertyTokenFactory.sol#55) is not in mixedCase
 Parameter PropertyTokenFactory.initialize(address,address,address)._tokenBeacon (contracts/core/PropertyTokenFactory.sol#56) is not in mixedCase
 Variable PropertyTokenFactory.__gap (contracts/core/PropertyTokenFactory.sol#164) is not in mixedCase
-Parameter MultiSigWallet.submitTransaction(address,uint256,bytes)._to (contracts/governance/MultiSigWallet.sol#104) is not in mixedCase
-Parameter MultiSigWallet.submitTransaction(address,uint256,bytes)._value (contracts/governance/MultiSigWallet.sol#105) is not in mixedCase
-Parameter MultiSigWallet.submitTransaction(address,uint256,bytes)._data (contracts/governance/MultiSigWallet.sol#106) is not in mixedCase
-Parameter MultiSigWallet.confirmTransaction(uint256)._txIndex (contracts/governance/MultiSigWallet.sol#125) is not in mixedCase
-Parameter MultiSigWallet.executeTransaction(uint256)._txIndex (contracts/governance/MultiSigWallet.sol#138) is not in mixedCase
-Parameter MultiSigWallet.revokeConfirmation(uint256)._txIndex (contracts/governance/MultiSigWallet.sol#156) is not in mixedCase
-Parameter MultiSigWallet.addOwner(address)._owner (contracts/governance/MultiSigWallet.sol#167) is not in mixedCase
-Parameter MultiSigWallet.removeOwner(address)._owner (contracts/governance/MultiSigWallet.sol#178) is not in mixedCase
-Parameter MultiSigWallet.changeThreshold(uint256)._threshold (contracts/governance/MultiSigWallet.sol#207) is not in mixedCase
-Parameter MultiSigWallet.getTransaction(uint256)._txIndex (contracts/governance/MultiSigWallet.sol#225) is not in mixedCase
+Parameter MultiSigWallet.submitTransaction(address,uint256,bytes)._to (contracts/governance-upgrade/MultiSigWallet.sol#104) is not in mixedCase
+Parameter MultiSigWallet.submitTransaction(address,uint256,bytes)._value (contracts/governance-upgrade/MultiSigWallet.sol#105) is not in mixedCase
+Parameter MultiSigWallet.submitTransaction(address,uint256,bytes)._data (contracts/governance-upgrade/MultiSigWallet.sol#106) is not in mixedCase
+Parameter MultiSigWallet.confirmTransaction(uint256)._txIndex (contracts/governance-upgrade/MultiSigWallet.sol#125) is not in mixedCase
+Parameter MultiSigWallet.executeTransaction(uint256)._txIndex (contracts/governance-upgrade/MultiSigWallet.sol#138) is not in mixedCase
+Parameter MultiSigWallet.revokeConfirmation(uint256)._txIndex (contracts/governance-upgrade/MultiSigWallet.sol#156) is not in mixedCase
+Parameter MultiSigWallet.addOwner(address)._owner (contracts/governance-upgrade/MultiSigWallet.sol#167) is not in mixedCase
+Parameter MultiSigWallet.removeOwner(address)._owner (contracts/governance-upgrade/MultiSigWallet.sol#178) is not in mixedCase
+Parameter MultiSigWallet.changeThreshold(uint256)._threshold (contracts/governance-upgrade/MultiSigWallet.sol#207) is not in mixedCase
+Parameter MultiSigWallet.getTransaction(uint256)._txIndex (contracts/governance-upgrade/MultiSigWallet.sol#225) is not in mixedCase
 Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
 INFO:Detectors:
 Detector: unused-state
