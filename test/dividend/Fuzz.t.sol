@@ -51,10 +51,10 @@ contract DividendFuzzTest is Test {
         );
         kyc = KYCRegistry(address(kycProxy));
 
-        kyc.addUser(address(this), 1);
-        kyc.addUser(spv, 2);
-        kyc.addUser(investor1, 1);
-        kyc.addUser(investor2, 1);
+        kyc.addUser(address(this));
+        kyc.addUser(spv);
+        kyc.addUser(investor1);
+        kyc.addUser(investor2);
 
         // Deploy PropertyToken
         PropertyToken tokenImpl = new PropertyToken();
@@ -69,7 +69,6 @@ contract DividendFuzzTest is Test {
                     TOTAL_SUPPLY,
                     1,
                     address(kyc),
-                    1,
                     address(this)
                 )
             )
@@ -318,11 +317,11 @@ contract GovernorFuzzTest is Test {
         );
         kyc = KYCRegistry(address(kycProxy));
 
-        kyc.addUser(address(this), 1);
-        kyc.addUser(admin, 1);
-        kyc.addUser(voter1, 1);
-        kyc.addUser(voter2, 1);
-        kyc.addUser(voter3, 1);
+        kyc.addUser(address(this));
+        kyc.addUser(admin);
+        kyc.addUser(voter1);
+        kyc.addUser(voter2);
+        kyc.addUser(voter3);
 
         // Deploy PropertyToken
         PropertyToken tokenImpl = new PropertyToken();
@@ -333,7 +332,7 @@ contract GovernorFuzzTest is Test {
                 PropertyToken.initialize,
                 (
                     "RealToken - Fuzz Gov", "RTFG",
-                    TOTAL_SUPPLY, 1, address(kyc), 1, address(this)
+                    TOTAL_SUPPLY, 1, address(kyc), address(this)
                 )
             )
         );

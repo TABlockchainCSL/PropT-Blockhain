@@ -63,12 +63,12 @@ contract IntegrationTest is Test {
         );
         kyc = KYCRegistry(address(kycProxy));
 
-        kyc.addUser(deployer, 1);
-        kyc.addUser(admin, 1);
-        kyc.addUser(spv, 2);
-        kyc.addUser(investor1, 1);
-        kyc.addUser(investor2, 1);
-        kyc.addUser(investor3, 1);
+        kyc.addUser(deployer);
+        kyc.addUser(admin);
+        kyc.addUser(spv);
+        kyc.addUser(investor1);
+        kyc.addUser(investor2);
+        kyc.addUser(investor3);
 
         // ── Deploy PropertyRegistry (Person 1 core) ─────────────────
         PropertyRegistry regImpl = new PropertyRegistry();
@@ -93,7 +93,6 @@ contract IntegrationTest is Test {
                     TOTAL_SUPPLY,
                     1,               // propertyId
                     address(kyc),
-                    1,               // requiredKYCLevel = Basic
                     deployer
                 )
             )
@@ -365,7 +364,7 @@ contract IntegrationTest is Test {
         dividend.claimDividends(type(uint256).max);
 
         // ── Step 5: Restore KYC and claim ────────────────────────
-        kyc.addUser(investor2, 1);
+        kyc.addUser(investor2);
         vm.prank(investor2);
         dividend.claimDividends(type(uint256).max);
         assertEq(usdc.balanceOf(investor2), 1500e6); // 30%

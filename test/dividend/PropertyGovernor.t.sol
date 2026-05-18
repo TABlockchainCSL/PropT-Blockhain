@@ -58,11 +58,11 @@ contract PropertyGovernorTest is Test {
         kyc = KYCRegistry(address(kycProxy));
 
         // Add KYC
-        kyc.addUser(address(this), 1);
-        kyc.addUser(admin, 1);
-        kyc.addUser(voter1, 1);
-        kyc.addUser(voter2, 1);
-        kyc.addUser(voter3, 1);
+        kyc.addUser(address(this));
+        kyc.addUser(admin);
+        kyc.addUser(voter1);
+        kyc.addUser(voter2);
+        kyc.addUser(voter3);
 
         // ── Deploy PropertyRegistry via UUPS proxy ──────────
         PropertyRegistry regImpl = new PropertyRegistry();
@@ -87,7 +87,6 @@ contract PropertyGovernorTest is Test {
                     TOTAL_SUPPLY,
                     1,
                     address(kyc),
-                    1,
                     address(this) // owner = test contract
                 )
             )
@@ -974,7 +973,7 @@ contract PropertyGovernorTest is Test {
     function test_nonDelegatedVoter_zeroPower() public {
         // Create a new holder that does NOT delegate
         address noDelegateHolder = makeAddr("noDelegate");
-        kyc.addUser(noDelegateHolder, 1);
+        kyc.addUser(noDelegateHolder);
 
         // Transfer some tokens from voter1 to noDelegate holder
         vm.prank(voter1);
