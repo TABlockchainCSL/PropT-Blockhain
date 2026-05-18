@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 
-import "../../contracts/governance-upgrade/MultiSigWallet.sol";
+import "../../src/governance-upgrade/MultiSigWallet.sol";
 
 /// @title MultiSigWalletTest
 /// @notice Unit tests for MultiSigWallet: deployment, submit, confirm, execute,

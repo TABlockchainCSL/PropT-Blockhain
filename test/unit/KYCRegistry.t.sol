@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import "../../contracts/core/KYCRegistry.sol";
-import "../../contracts/interfaces/IKYCRegistry.sol";
+import "../../src/core/KYCRegistry.sol";
+import "../../src/interfaces/IKYCRegistry.sol";
 
 /// @title KYCRegistryTest
 /// @notice Unit tests for KYCRegistry: happy path, negative path, edge case,

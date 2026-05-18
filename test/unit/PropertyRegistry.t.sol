@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import "../../contracts/core/PropertyRegistry.sol";
-import "../../contracts/interfaces/IPropertyRegistry.sol";
+import "../../src/core/PropertyRegistry.sol";
+import "../../src/interfaces/IPropertyRegistry.sol";
 
 /// @title PropertyRegistryTest
 /// @notice Unit tests for PropertyRegistry: happy path, negative path, edge case,

@@ -5,9 +5,9 @@ import "forge-std/StdUtils.sol";
 import "forge-std/StdCheats.sol";
 import "forge-std/Base.sol";
 
-import "../../../contracts/core/KYCRegistry.sol";
-import "../../../contracts/core/PropertyRegistry.sol";
-import "../../../contracts/core/PropertyToken.sol";
+import "../../../src/core/KYCRegistry.sol";
+import "../../../src/core/PropertyRegistry.sol";
+import "../../../src/core/PropertyToken.sol";
 
 /// @title InvariantHandler
 /// @notice Handler that mediates fuzzer calls to the core contracts so

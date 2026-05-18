@@ -5,8 +5,8 @@ import "forge-std/Script.sol";
 import "@openzeppelin/contracts/governance/TimelockController.sol";
 import "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
-import "../contracts/dividend/DividendDistribution.sol";
-import "../contracts/dividend/PropertyGovernor.sol";
+import "../src/dividend/DividendDistribution.sol";
+import "../src/dividend/PropertyGovernor.sol";
 
 /**
  * @title DeployDividend

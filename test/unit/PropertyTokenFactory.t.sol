@@ -5,11 +5,11 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 
-import "../../contracts/core/KYCRegistry.sol";
-import "../../contracts/core/PropertyRegistry.sol";
-import "../../contracts/core/PropertyToken.sol";
-import "../../contracts/core/PropertyTokenFactory.sol";
-import "../../contracts/interfaces/IPropertyTokenFactory.sol";
+import "../../src/core/KYCRegistry.sol";
+import "../../src/core/PropertyRegistry.sol";
+import "../../src/core/PropertyToken.sol";
+import "../../src/core/PropertyTokenFactory.sol";
+import "../../src/interfaces/IPropertyTokenFactory.sol";
 
 /// @title PropertyTokenFactoryTest
 /// @notice Unit tests for PropertyTokenFactory: createPropertyToken, parameter

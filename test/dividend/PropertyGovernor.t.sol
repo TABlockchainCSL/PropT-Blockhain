@@ -9,11 +9,11 @@ import "@openzeppelin/contracts/governance/TimelockController.sol";
 import "@openzeppelin/contracts/governance/IGovernor.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import "../../contracts/core/PropertyToken.sol";
-import "../../contracts/core/PropertyRegistry.sol";
-import "../../contracts/core/KYCRegistry.sol";
-import "../../contracts/dividend/DividendDistribution.sol";
-import "../../contracts/dividend/PropertyGovernor.sol";
+import "../../src/core/PropertyToken.sol";
+import "../../src/core/PropertyRegistry.sol";
+import "../../src/core/KYCRegistry.sol";
+import "../../src/dividend/DividendDistribution.sol";
+import "../../src/dividend/PropertyGovernor.sol";
 
 /// @notice Mock stablecoin for testing
 contract MockUSDC is ERC20 {

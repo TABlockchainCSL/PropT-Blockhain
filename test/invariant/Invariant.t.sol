@@ -6,9 +6,9 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 
-import "../../contracts/core/KYCRegistry.sol";
-import "../../contracts/core/PropertyRegistry.sol";
-import "../../contracts/core/PropertyToken.sol";
+import "../../src/core/KYCRegistry.sol";
+import "../../src/core/PropertyRegistry.sol";
+import "../../src/core/PropertyToken.sol";
 import "./handlers/Handler.sol";
 
 /// @title InvariantTest

@@ -7,9 +7,9 @@ import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import "../../contracts/core/PropertyToken.sol";
-import "../../contracts/core/KYCRegistry.sol";
-import "../../contracts/dividend/DividendDistribution.sol";
+import "../../src/core/PropertyToken.sol";
+import "../../src/core/KYCRegistry.sol";
+import "../../src/dividend/DividendDistribution.sol";
 
 /// @notice Mock USDC for testing (6 decimals like real USDC)
 contract MockUSDC is ERC20 {

@@ -6,11 +6,11 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "@openzeppelin/contracts/governance/TimelockController.sol";
 
-import "../contracts/core/KYCRegistry.sol";
-import "../contracts/core/PropertyRegistry.sol";
-import "../contracts/core/PropertyToken.sol";
-import "../contracts/core/PropertyTokenFactory.sol";
-import "../contracts/governance-upgrade/MultiSigWallet.sol";
+import "../src/core/KYCRegistry.sol";
+import "../src/core/PropertyRegistry.sol";
+import "../src/core/PropertyToken.sol";
+import "../src/core/PropertyTokenFactory.sol";
+import "../src/governance-upgrade/MultiSigWallet.sol";
 
 contract DeployCore is Script {
     function run() external {
