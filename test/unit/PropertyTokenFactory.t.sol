@@ -71,9 +71,9 @@ contract PropertyTokenFactoryTest is Test {
         });
     }
 
-    // =========================================================================
-    //  createPropertyToken — happy path
-    // =========================================================================
+    /**
+     * @notice createPropertyToken — happy path
+     */
 
     function test_Factory_createAndRegister() public {
         factory.createPropertyToken(_defaultParams());
@@ -147,9 +147,9 @@ contract PropertyTokenFactoryTest is Test {
         assertEq(tokenAddr, address(0));
     }
 
-    // =========================================================================
-    //  createPropertyToken — negative path (parameter validation)
-    // =========================================================================
+    /**
+     * @notice createPropertyToken — negative path (parameter validation)
+     */
 
     function test_Factory_revertEmptyName() public {
         IPropertyTokenFactory.CreateTokenParams memory p = _defaultParams();
@@ -217,9 +217,9 @@ contract PropertyTokenFactoryTest is Test {
         factory.createPropertyToken(p);
     }
 
-    // =========================================================================
-    //  initialize — zero-address guards (edge case)
-    // =========================================================================
+    /**
+     * @notice initialize — zero-address guards (edge case)
+     */
 
     function test_Factory_initialize_revertZeroKYC() public {
         PropertyTokenFactory factImpl = new PropertyTokenFactory();
@@ -255,9 +255,9 @@ contract PropertyTokenFactoryTest is Test {
         );
     }
 
-    // =========================================================================
-    //  Upgradeability
-    // =========================================================================
+    /**
+     * @notice Upgradeability
+     */
 
     function test_Factory_upgrade_revertNonOwner() public {
         PropertyTokenFactory factoryV2 = new PropertyTokenFactory();
@@ -271,9 +271,9 @@ contract PropertyTokenFactoryTest is Test {
         factory.initialize(address(kycRegistry), address(propertyRegistry), address(beacon));
     }
 
-    // =========================================================================
-    //  Security: ACL negative path
-    // =========================================================================
+    /**
+     * @notice Security: ACL negative path
+     */
 
     function test_Factory_revertNonOwner() public {
         vm.prank(user1);

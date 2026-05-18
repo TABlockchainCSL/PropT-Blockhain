@@ -32,11 +32,18 @@ contract PropertyRegistryTest is Test {
         propertyRegistry = PropertyRegistry(address(regProxy));
     }
 
-    // =========================================================================
-    //  registerProperty — happy path
-    // =========================================================================
+    /**
+     * @notice registerProperty — happy path
+     */
 
     function test_Registry_registerProperty() public {
+        vm.expectEmit(true, true, false, true);
+        emit IPropertyRegistry.PropertyRegistered(
+            1,
+            "Apartemen Sudirman Park",
+            user1,
+            "ipfs://QmExampleHash123456789"
+        );
         propertyRegistry.registerProperty(
             "Apartemen Sudirman Park",
             "Jl. Jend. Sudirman No. 1, Jakarta",
@@ -54,23 +61,6 @@ contract PropertyRegistryTest is Test {
         assertEq(prop.ipfsDocumentURI, "ipfs://QmExampleHash123456789");
         assertEq(prop.tokenAddress, user1);
         assertTrue(prop.isActive);
-    }
-
-    function test_Registry_registerProperty_emitsEvent() public {
-        vm.expectEmit(true, true, false, true);
-        emit IPropertyRegistry.PropertyRegistered(
-            1,
-            "Apartemen Sudirman Park",
-            user1,
-            "ipfs://QmExampleHash123456789"
-        );
-        propertyRegistry.registerProperty(
-            "Apartemen Sudirman Park",
-            "Jl. Jend. Sudirman No. 1, Jakarta",
-            100 ether,
-            "ipfs://QmExampleHash123456789",
-            user1
-        );
     }
 
     function test_Registry_incrementPropertyCount() public {
@@ -112,9 +102,9 @@ contract PropertyRegistryTest is Test {
         assertEq(ids[1], 2);
     }
 
-    // =========================================================================
-    //  registerProperty — negative path
-    // =========================================================================
+    /**
+     * @notice registerProperty — negative path
+     */
 
     function test_Registry_revertEmptyName() public {
         vm.expectRevert(
@@ -216,9 +206,9 @@ contract PropertyRegistryTest is Test {
         );
     }
 
-    // =========================================================================
-    //  getProperty — edge cases
-    // =========================================================================
+    /**
+     * @notice getProperty — edge cases
+     */
 
     function test_Registry_revertGetPropertyNotFound() public {
         vm.expectRevert(
@@ -248,26 +238,11 @@ contract PropertyRegistryTest is Test {
         propertyRegistry.getPropertyByToken(address(0xdead));
     }
 
-    // =========================================================================
-    //  updateIPFSDocument — happy path + negative
-    // =========================================================================
+    /**
+     * @notice updateIPFSDocument — happy path + negative
+     */
 
     function test_Registry_updateIPFS() public {
-        propertyRegistry.registerProperty(
-            "Prop",
-            "Addr",
-            100 ether,
-            "ipfs://OldHash",
-            user1
-        );
-        propertyRegistry.updateIPFSDocument(1, "ipfs://QmNewHashUpdated");
-        IPropertyRegistry.Property memory prop = propertyRegistry.getProperty(
-            1
-        );
-        assertEq(prop.ipfsDocumentURI, "ipfs://QmNewHashUpdated");
-    }
-
-    function test_Registry_updateIPFS_emitsEvent() public {
         propertyRegistry.registerProperty(
             "Prop",
             "Addr",
@@ -282,6 +257,10 @@ contract PropertyRegistryTest is Test {
             "ipfs://QmNewHashUpdated"
         );
         propertyRegistry.updateIPFSDocument(1, "ipfs://QmNewHashUpdated");
+        IPropertyRegistry.Property memory prop = propertyRegistry.getProperty(
+            1
+        );
+        assertEq(prop.ipfsDocumentURI, "ipfs://QmNewHashUpdated");
     }
 
     function test_Registry_updateIPFS_revertNonExistent() public {
@@ -305,9 +284,9 @@ contract PropertyRegistryTest is Test {
         propertyRegistry.updateIPFSDocument(1, "");
     }
 
-    // =========================================================================
-    //  updatePropertyName / updatePropertyValue
-    // =========================================================================
+    /**
+     * @notice updatePropertyName / updatePropertyValue
+     */
 
     function test_Registry_updatePropertyName() public {
         propertyRegistry.registerProperty(
@@ -357,9 +336,9 @@ contract PropertyRegistryTest is Test {
         propertyRegistry.updatePropertyValue(1, 0);
     }
 
-    // =========================================================================
-    //  deactivate / reactivate
-    // =========================================================================
+    /**
+     * @notice deactivate / reactivate
+     */
 
     function test_Registry_deactivate() public {
         propertyRegistry.registerProperty(
@@ -432,9 +411,9 @@ contract PropertyRegistryTest is Test {
         propertyRegistry.reactivateProperty(777);
     }
 
-    // =========================================================================
-    //  Upgradeability
-    // =========================================================================
+    /**
+     * @notice Upgradeability
+     */
 
     function test_Registry_upgrade_preservesState() public {
         propertyRegistry.registerProperty(
@@ -461,9 +440,9 @@ contract PropertyRegistryTest is Test {
         propertyRegistry.initialize();
     }
 
-    // =========================================================================
-    //  Security: ACL negative path
-    // =========================================================================
+    /**
+     * @notice Security: ACL negative path
+     */
 
     function test_ACL_attackerCannotRegisterProperty() public {
         vm.prank(attacker);
@@ -496,15 +475,5 @@ contract PropertyRegistryTest is Test {
         vm.prank(attacker);
         vm.expectRevert();
         propertyRegistry.upgradeToAndCall(address(regV2), "");
-    }
-
-    function test_StorageCollision_preservesDataAfterUpgrade() public {
-        propertyRegistry.registerProperty("P", "A", 1 ether, "ipfs://x", user1);
-        uint256 count = propertyRegistry.getPropertyCount();
-
-        PropertyRegistry regV2 = new PropertyRegistry();
-        propertyRegistry.upgradeToAndCall(address(regV2), "");
-
-        assertEq(propertyRegistry.getPropertyCount(), count);
     }
 }

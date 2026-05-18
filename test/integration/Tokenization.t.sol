@@ -60,10 +60,10 @@ contract TokenizationIntegrationTest is Test {
         propertyRegistry.grantRole(REGISTRY_ADMIN_ROLE, address(factory));
     }
 
-    // =========================================================================
-    //  test_E2E_fullTokenizationFlow
-    //  Verifies 8 sequential stages in one run
-    // =========================================================================
+    /**
+     * @notice Verifies the complete end-to-end tokenization flow.
+     * Includes KYC, creation, distribution, transfers, and metadata updates.
+     */
 
     function test_E2E_fullTokenizationFlow() public {
         // 1. KYC onboarding
@@ -121,10 +121,9 @@ contract TokenizationIntegrationTest is Test {
         assertEq(updatedProp.ipfsDocumentURI, "ipfs://QmUpdatedDocWithNewPhotos");
     }
 
-    // =========================================================================
-    //  test_Functional_multiTokenIndependentKYC
-    //  One KYCRegistry serves multiple PropertyToken contracts
-    // =========================================================================
+    /**
+     * @notice Verifies that multiple tokens can operate independently using the same KYC registry.
+     */
 
     function test_Functional_multiTokenIndependentKYC() public {
         kycRegistry.addUser(owner);
@@ -178,10 +177,9 @@ contract TokenizationIntegrationTest is Test {
         assertEq(factory.getDeployedTokenCount(), 2);
     }
 
-    // =========================================================================
-    //  test_Functional_fullLifecycle
-    //  Transfer → pause → unpause → beacon upgrade → state integrity
-    // =========================================================================
+    /**
+     * @notice Tests the full lifecycle of a token: transfer, pause, unpause, and beacon upgrade.
+     */
 
     function test_Functional_fullLifecycle() public {
         kycRegistry.addUser(owner);
@@ -227,9 +225,9 @@ contract TokenizationIntegrationTest is Test {
         assertEq(token.totalSupply(), 1000 ether);
     }
 
-    // =========================================================================
-    //  Upgrade state preservation (cross-contract)
-    // =========================================================================
+    /**
+     * @notice Verifies state preservation across contract upgrades for KYC and Property registries.
+     */
 
     function test_Upgrade_KYCRegistry_preservesState() public {
         kycRegistry.addUser(user1);

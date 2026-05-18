@@ -18,3 +18,7 @@ lcov.info
 .idea/
 
 docs/
+
+# ignore pdf, md
+*.pdf
+*.md

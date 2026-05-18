@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 
-import "../../contracts/governance/MultiSigWallet.sol";
+import "../../contracts/governance-upgrade/MultiSigWallet.sol";
 
 /// @title MultiSigWalletTest
 /// @notice Unit tests for MultiSigWallet: deployment, submit, confirm, execute,
@@ -42,9 +42,9 @@ contract MultiSigWalletTest is Test {
         ms = new MultiSigWallet(owners, threshold);
     }
 
-    // =========================================================================
-    //  Deployment — happy path
-    // =========================================================================
+    /**
+     * @notice Deployment — happy path
+     */
 
     function test_Deployment_correctOwners() public {
         address[] memory owners = multiSig.getOwners();
@@ -58,9 +58,9 @@ contract MultiSigWalletTest is Test {
         assertEq(multiSig.threshold(), THRESHOLD);
     }
 
-    // =========================================================================
-    //  Deployment — negative path
-    // =========================================================================
+    /**
+     * @notice Deployment — negative path
+     */
 
     function test_Deployment_revertZeroThreshold() public {
         address[] memory owners = new address[](1);
@@ -103,9 +103,9 @@ contract MultiSigWalletTest is Test {
         new MultiSigWallet(owners, 1);
     }
 
-    // =========================================================================
-    //  submitTransaction
-    // =========================================================================
+    /**
+     * @notice submitTransaction
+     */
 
     function test_Submit_transaction() public {
         bytes memory data = abi.encodeCall(MultiSigWallet.changeThreshold, (3));
@@ -121,9 +121,9 @@ contract MultiSigWalletTest is Test {
         multiSig.submitTransaction(owner1, 0, "");
     }
 
-    // =========================================================================
-    //  confirmTransaction
-    // =========================================================================
+    /**
+     * @notice confirmTransaction
+     */
 
     function test_Confirm_transaction() public {
         multiSig.submitTransaction(owner1, 0, "");
@@ -152,9 +152,9 @@ contract MultiSigWalletTest is Test {
         multiSig.confirmTransaction(999);
     }
 
-    // =========================================================================
-    //  executeTransaction
-    // =========================================================================
+    /**
+     * @notice executeTransaction
+     */
 
     function test_Execute_afterThreshold() public {
         bytes memory data = abi.encodeCall(MultiSigWallet.changeThreshold, (3));
@@ -217,9 +217,9 @@ contract MultiSigWalletTest is Test {
         ms.executeTransaction(txId);
     }
 
-    // =========================================================================
-    //  revokeConfirmation
-    // =========================================================================
+    /**
+     * @notice revokeConfirmation
+     */
 
     function test_Revoke_confirmation() public {
         multiSig.submitTransaction(owner1, 0, "");
@@ -255,9 +255,9 @@ contract MultiSigWalletTest is Test {
         ms.revokeConfirmation(txId);
     }
 
-    // =========================================================================
-    //  Owner management — self-call governance
-    // =========================================================================
+    /**
+     * @notice Owner management — self-call governance
+     */
 
     function test_OwnerMgmt_addOwner() public {
         bytes memory data = abi.encodeCall(MultiSigWallet.addOwner, (nonOwner));
@@ -324,9 +324,9 @@ contract MultiSigWalletTest is Test {
         assertEq(ms.getOwnerCount(), 2);
     }
 
-    // =========================================================================
-    //  Self-call edge cases
-    // =========================================================================
+    /**
+     * @notice Self-call edge cases
+     */
 
     function test_MultiSig_addOwner_revertZeroAddress() public {
         MultiSigWallet ms = _deployMs(2);
@@ -392,9 +392,9 @@ contract MultiSigWalletTest is Test {
         ms.executeTransaction(txId);
     }
 
-    // =========================================================================
-    //  Security: attacker cannot use multisig
-    // =========================================================================
+    /**
+     * @notice Security: attacker cannot use multisig
+     */
 
     function test_MultiSigSecurity_nonOwnerCannotSubmit() public {
         vm.prank(nonOwner);

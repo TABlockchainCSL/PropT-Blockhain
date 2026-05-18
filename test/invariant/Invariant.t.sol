@@ -83,9 +83,9 @@ contract InvariantTest is Test {
         excludeContract(address(beacon));
     }
 
-    // =========================================================================
-    //  Invariant 1: no value creation or destruction outside mint/burn
-    // =========================================================================
+    /**
+     * @notice Invariant 1: Total supply must equal the sum of all holder balances.
+     */
     /// @notice totalSupply must always equal the sum of balances held by
     ///         admin + every actor tracked by the handler.
     function invariant_TotalSupplyEqualsBalanceSum() external {
@@ -97,9 +97,9 @@ contract InvariantTest is Test {
         assertEq(sum, token.totalSupply(), "totalSupply mismatch across tracked holders");
     }
 
-    // =========================================================================
-    //  Invariant 2: KYC bookkeeping consistent
-    // =========================================================================
+    /**
+     * @notice Invariant 2: KYC registry bookkeeping must remain consistent.
+     */
     /// @notice The verified-user count must equal the length of the address array,
     ///         and every address in that array must still be verified.
     function invariant_VerifiedCountConsistent() external {
@@ -112,9 +112,9 @@ contract InvariantTest is Test {
         }
     }
 
-    // =========================================================================
-    //  Invariant 3: property IDs strictly monotonic
-    // =========================================================================
+    /**
+     * @notice Invariant 3: Property IDs must be strictly monotonic.
+     */
     /// @notice getNextPropertyId() starts at 1 and never decreases.
     function invariant_PropertyIdMonotonic() external {
         uint256 next = propertyRegistry.getNextPropertyId();
@@ -126,17 +126,17 @@ contract InvariantTest is Test {
         );
     }
 
-    // =========================================================================
-    //  Invariant 4: ownership never escapes admin
-    // =========================================================================
+    /**
+     * @notice Invariant 4: Token ownership must remain with the admin.
+     */
     /// @notice Owner of the PropertyToken never changes during fuzzed runs.
     function invariant_OwnerUnchanged() external {
         assertEq(token.owner(), admin, "token ownership drifted");
     }
 
-    // =========================================================================
-    //  Invariant 5: call summary — fuzzer exercises all five actions
-    // =========================================================================
+    /**
+     * @notice Invariant 5: Call summary - ensure fuzzer exercises all actions.
+     */
     function invariant_callSummary() external {
         assertGe(
             handler.callsTransfer() + handler.callsAddUser() + handler.callsRemoveUser()

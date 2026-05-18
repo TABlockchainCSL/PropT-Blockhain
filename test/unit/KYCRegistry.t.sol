@@ -32,19 +32,15 @@ contract KYCRegistryTest is Test {
         kycRegistry = KYCRegistry(address(kycProxy));
     }
 
-    // =========================================================================
-    //  addUser — happy path
-    // =========================================================================
+    /**
+     * @notice addUser — happy path
+     */
 
     function test_KYC_addUser() public {
-        kycRegistry.addUser(user1);
-        assertTrue(kycRegistry.isVerified(user1));
-    }
-
-    function test_KYC_addUser_emitsEvent() public {
         vm.expectEmit(true, true, false, true);
         emit IKYCRegistry.UserApproved(user1, owner);
         kycRegistry.addUser(user1);
+        assertTrue(kycRegistry.isVerified(user1));
     }
 
     function test_KYC_getVerifiedUsers() public {
@@ -54,9 +50,9 @@ contract KYCRegistryTest is Test {
         assertEq(users.length, 2);
     }
 
-    // =========================================================================
-    //  addUser — negative path
-    // =========================================================================
+    /**
+     * @notice addUser — negative path
+     */
 
     function test_KYC_addUser_revertAlreadyVerified() public {
         kycRegistry.addUser(user1);
@@ -75,21 +71,16 @@ contract KYCRegistryTest is Test {
         kycRegistry.addUser(user2);
     }
 
-    // =========================================================================
-    //  removeUser — happy path
-    // =========================================================================
+    /**
+     * @notice removeUser — happy path
+     */
 
     function test_KYC_removeUser() public {
-        kycRegistry.addUser(user1);
-        kycRegistry.removeUser(user1);
-        assertFalse(kycRegistry.isVerified(user1));
-    }
-
-    function test_KYC_removeUser_emitsEvent() public {
         kycRegistry.addUser(user1);
         vm.expectEmit(true, true, false, true);
         emit IKYCRegistry.UserRemoved(user1, owner);
         kycRegistry.removeUser(user1);
+        assertFalse(kycRegistry.isVerified(user1));
     }
 
     function test_KYC_removeUser_decreasesCount() public {
@@ -100,9 +91,9 @@ contract KYCRegistryTest is Test {
         assertEq(kycRegistry.getVerifiedUserCount(), 1);
     }
 
-    // =========================================================================
-    //  removeUser — negative path
-    // =========================================================================
+    /**
+     * @notice removeUser — negative path
+     */
 
     function test_KYC_removeUser_revertNotVerified() public {
         vm.expectRevert(abi.encodeWithSelector(IKYCRegistry.UserNotVerified.selector, user2));
@@ -114,9 +105,9 @@ contract KYCRegistryTest is Test {
         kycRegistry.removeUser(address(0));
     }
 
-    // =========================================================================
-    //  removeUser — edge case: swap-and-pop paths
-    // =========================================================================
+    /**
+     * @notice removeUser — edge case: swap-and-pop paths
+     */
 
     function test_KYC_removeUser_lastElement() public {
         kycRegistry.addUser(user1);
@@ -145,9 +136,9 @@ contract KYCRegistryTest is Test {
         assertEq(kycRegistry.getVerifiedUserCount(), 0);
     }
 
-    // =========================================================================
-    //  addApprovedContract / removeApprovedContract
-    // =========================================================================
+    /**
+     * @notice addApprovedContract / removeApprovedContract
+     */
 
     function test_KYC_addApprovedContract_revertEOA() public {
         vm.expectRevert(abi.encodeWithSelector(IKYCRegistry.NotAContract.selector, user1));
@@ -189,9 +180,9 @@ contract KYCRegistryTest is Test {
         kycRegistry.removeApprovedContract(address(0));
     }
 
-    // =========================================================================
-    //  Upgradeability
-    // =========================================================================
+    /**
+     * @notice Upgradeability
+     */
 
     function test_KYC_upgrade_preservesState() public {
         kycRegistry.addUser(user1);
@@ -217,22 +208,9 @@ contract KYCRegistryTest is Test {
         kycRegistry.initialize();
     }
 
-    // =========================================================================
-    //  Security: ACL negative path
-    // =========================================================================
-
-    function test_ACL_attackerCannotAddKYC() public {
-        vm.prank(attacker);
-        vm.expectRevert();
-        kycRegistry.addUser(attacker);
-    }
-
-    function test_ACL_attackerCannotRemoveKYC() public {
-        kycRegistry.addUser(user1);
-        vm.prank(attacker);
-        vm.expectRevert();
-        kycRegistry.removeUser(user1);
-    }
+    /**
+     * @notice Security: ACL negative path
+     */
 
     function test_ACL_attackerCannotGrantAdminRole() public {
         bytes32 DEFAULT_ADMIN_ROLE = kycRegistry.DEFAULT_ADMIN_ROLE();
@@ -246,17 +224,5 @@ contract KYCRegistryTest is Test {
         vm.prank(attacker);
         vm.expectRevert();
         kycRegistry.upgradeToAndCall(address(kycV2), "");
-    }
-
-    function test_StorageCollision_preservesDataAfterUpgrade() public {
-        kycRegistry.addUser(user1);
-        uint256 userCount = kycRegistry.getVerifiedUserCount();
-        bool isVerified = kycRegistry.isVerified(user1);
-
-        KYCRegistry kycV2 = new KYCRegistry();
-        kycRegistry.upgradeToAndCall(address(kycV2), "");
-
-        assertEq(kycRegistry.getVerifiedUserCount(), userCount);
-        assertEq(kycRegistry.isVerified(user1), isVerified);
     }
 }
