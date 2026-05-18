@@ -12,7 +12,7 @@ import "../contracts/core/PropertyToken.sol";
 import "../contracts/core/PropertyTokenFactory.sol";
 import "../contracts/governance-upgrade/MultiSigWallet.sol";
 
-contract Deploy is Script {
+contract DeployCore is Script {
     function run() external {
         uint256 deployerPk = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerPk);

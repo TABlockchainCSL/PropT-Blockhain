@@ -268,7 +268,7 @@ contract OperatorDirectFlowTest is Test {
         );
         propertyRegistry.grantRole(propertyRegistry.REGISTRY_ADMIN_ROLE(), address(factory));
 
-        // Replicate Deploy.s.sol role partitioning
+        // Replicate DeployCore.s.sol role partitioning
         bytes32 kycAdmin = kycRegistry.KYC_ADMIN_ROLE();
         bytes32 kycDefaultAdmin = kycRegistry.DEFAULT_ADMIN_ROLE();
         kycRegistry.grantRole(kycDefaultAdmin, timelock);
