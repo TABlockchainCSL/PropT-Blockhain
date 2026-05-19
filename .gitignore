@@ -1,12 +1,14 @@
 # Foundry
 out/
 cache/
+broadcast/
 
 # Environment
 .env
 
 # Node (legacy)
 node_modules/
+.venv-slither/
 
 # Coverage
 coverage/
