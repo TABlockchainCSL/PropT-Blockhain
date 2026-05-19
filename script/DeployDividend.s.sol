@@ -23,42 +23,63 @@ contract DeployDividend is Script {
         // ── Read addresses from Person 1's deployment ─────────────────
         address propertyTokenAddr = vm.envAddress("PROPERTY_TOKEN_ADDRESS");
         address kycRegistryAddr   = vm.envAddress("KYC_REGISTRY_ADDRESS");
-        address timelockAddr      = vm.envAddress("TIMELOCK_ADDRESS");
         address stablecoinAddr    = vm.envAddress("STABLECOIN_ADDRESS");
 
         console.log("=== Deploying Person 2 Contracts ===");
         console.log("PropertyToken:", propertyTokenAddr);
         console.log("KYCRegistry:", kycRegistryAddr);
-        console.log("Timelock:", timelockAddr);
         console.log("Stablecoin:", stablecoinAddr);
 
         vm.startBroadcast(deployerPk);
 
-        // ── 1. Deploy DividendDistribution ────────────────────────────
+        // ── 1. Deploy TimelockController (Milik Modul 2) ──────────────
+        address[] memory empty = new address[](0);
+        TimelockController daoTimelock = new TimelockController(
+            172800, // minDelay 2 hari
+            empty,
+            empty,
+            vm.addr(deployerPk) // deployer sebagai admin sementara
+        );
+        console.log("DAOTimelock:", address(daoTimelock));
+
+        // ── 2. Deploy DividendDistribution ────────────────────────────
         DividendDistribution dividend = new DividendDistribution(
             propertyTokenAddr,
             stablecoinAddr,
             kycRegistryAddr,
-            timelockAddr  // admin = TimelockController from Person 1
+            vm.addr(deployerPk)  // admin sementara = deployer (agar bisa grantRole)
         );
         console.log("DividendDistribution:", address(dividend));
 
-        // ── 2. Deploy PropertyGovernor ────────────────────────────────
-        address multisigAddr = vm.envAddress("MULTISIG_ADDRESS");
+        // Otomatis grant DEPOSITOR_ROLE ke SPV_ADDRESS
+        address spvAddr = vm.envAddress("SPV_ADDRESS");
+        dividend.grantRole(dividend.DEPOSITOR_ROLE(), spvAddr);
+        console.log("DepositorRole granted to SPV:", spvAddr);
+
+        // Pindahkan hak akses admin dan depositor DividendDistribution ke DAOTimelock
+        dividend.grantRole(dividend.DEFAULT_ADMIN_ROLE(), address(daoTimelock));
+        dividend.grantRole(dividend.DEPOSITOR_ROLE(), address(daoTimelock));
+        dividend.renounceRole(dividend.DEFAULT_ADMIN_ROLE(), vm.addr(deployerPk));
+        dividend.renounceRole(dividend.DEPOSITOR_ROLE(), vm.addr(deployerPk));
+
+        // ── 3. Deploy PropertyGovernor ────────────────────────────────
+        // Menggunakan SPV_ADDRESS sebagai proposerAdmin
         PropertyGovernor governor = new PropertyGovernor(
             IVotes(propertyTokenAddr),
-            TimelockController(payable(timelockAddr)),
-            multisigAddr  // proposerAdmin = MultiSig (hanya admin yang bisa propose)
+            daoTimelock,
+            spvAddr  // proposerAdmin
         );
         console.log("PropertyGovernor:", address(governor));
-        console.log("ProposerAdmin (MultiSig):", multisigAddr);
+        console.log("ProposerAdmin:", spvAddr);
+
+        // Setup role untuk Governor di Timelock Modul 2
+        daoTimelock.grantRole(daoTimelock.PROPOSER_ROLE(), address(governor));
+        daoTimelock.grantRole(daoTimelock.EXECUTOR_ROLE(), address(governor));
+        daoTimelock.grantRole(daoTimelock.CANCELLER_ROLE(), address(governor));
+
+        // Hapus akses admin Timelock dari deployer (Timelock kini dikontrol penuh oleh Governor)
+        daoTimelock.renounceRole(daoTimelock.DEFAULT_ADMIN_ROLE(), vm.addr(deployerPk));
 
         vm.stopBroadcast();
-
-        // ── 3. Post-deploy instructions ──────────────────────────────
-        console.log("\n=== POST-DEPLOY: Manual Steps Required ===");
-        console.log("Run these via MultiSig -> Timelock:");
-        console.log("1. Timelock.grantRole(PROPOSER_ROLE, governor)");
-        console.log("2. DividendDistribution.grantRole(DEPOSITOR_ROLE, <spv-addr>)");
     }
 }

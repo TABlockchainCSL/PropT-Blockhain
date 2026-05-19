@@ -32,13 +32,13 @@ import "@openzeppelin/contracts/governance/TimelockController.sol";
  *        untuk mencegah manipulasi oleh segelintir pemegang token.
  *
  * @dev Proposal Access Control:
- *      - HANYA proposerAdmin (MultiSig) yang bisa mengajukan proposal.
+ *      - HANYA proposerAdmin yang bisa mengajukan proposal.
  *      - Keputusan desain ini berdasarkan:
  *        1. Kepatuhan OJK: Platform harus menunjukkan kontrol atas aksi korporasi
  *        2. Keamanan: Mencegah proposal berbahaya (calldata exploit)
  *        3. Jaminan Dana: Admin memverifikasi dana sudah tersedia sebelum propose
  *      - Investor tetap punya suara melalui voting (castVote)
- *      - Admin path (MultiSig→Timelock) tetap tersedia sebagai fallback
+ *      - Admin path tetap tersedia sebagai fallback
  *
  * Lifecycle: propose (admin only) → votingDelay → castVote → votingPeriod →
  *            queue (timelock) → minDelay → execute
@@ -62,7 +62,7 @@ contract PropertyGovernor is
     GovernorTimelockControl
 {
     // ── Admin (hanya bisa propose) ───────────────────────────────────
-    /// @notice Address yang berhak mengajukan proposal (biasanya MultiSig)
+    /// @notice Address yang berhak mengajukan proposal
     address public immutable proposerAdmin;
 
     // ── Proposal Document Storage ────────────────────────────────────
@@ -85,8 +85,8 @@ contract PropertyGovernor is
     // ── Constructor ───────────────────────────────────────────────────
     /**
      * @param token_         PropertyToken address (implements IVotes)
-     * @param timelock_      TimelockController ALREADY DEPLOYED by Person 1
-     * @param proposerAdmin_ Address yang berhak propose (MultiSig address)
+     * @param timelock_      TimelockController instance
+     * @param proposerAdmin_ Address yang berhak propose
      */
     constructor(
         IVotes token_,
