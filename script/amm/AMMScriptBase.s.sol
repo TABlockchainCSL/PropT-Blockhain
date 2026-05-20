@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Script} from "forge-std/Script.sol";
 import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
-import {IERC20Minimal} from "../../src/amm/interfaces/IERC20Minimal.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 abstract contract AMMScriptBase is Script {
     function _privateKey() internal view returns (uint256) {
@@ -18,11 +18,11 @@ abstract contract AMMScriptBase is Script {
         return MinimalDodoPMM(vm.envAddress("POOL"));
     }
 
-    function _baseToken(MinimalDodoPMM pool) internal view returns (IERC20Minimal) {
+    function _baseToken(MinimalDodoPMM pool) internal view returns (IERC20Metadata) {
         return pool.baseToken();
     }
 
-    function _quoteToken(MinimalDodoPMM pool) internal view returns (IERC20Minimal) {
+    function _quoteToken(MinimalDodoPMM pool) internal view returns (IERC20Metadata) {
         return pool.quoteToken();
     }
 

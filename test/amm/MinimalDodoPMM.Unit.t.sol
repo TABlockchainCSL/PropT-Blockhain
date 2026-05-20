@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {RStatus} from "../../src/amm/types/PMMTypes.sol";
+import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
 import {AMMTestBase, MockERC20} from "./helpers/AMMTestBase.sol";
 
 contract MockDividendDistributor {
@@ -32,26 +33,7 @@ contract MockDividendDistributor {
     }
 }
 
-contract MinimalDodoPMMUnitTest is AMMTestBase {
-    function testEnableTaxRequiresRecipient() public {
-        vm.expectRevert(bytes("TAX_RECIPIENT_NOT_SET"));
-        pool.enableTax();
-    }
-
-    function testTradesRejectZeroAmountWithoutChangingState() public {
-        vm.prank(trader);
-        vm.expectRevert(bytes("ZERO_AMOUNT"));
-        pool.buyBaseToken(0, 0);
-
-        assertEq(uint256(pool.rStatus()), uint256(RStatus.ONE));
-
-        vm.prank(trader);
-        vm.expectRevert(bytes("ZERO_AMOUNT"));
-        pool.sellBaseToken(0, 0);
-
-        assertEq(uint256(pool.rStatus()), uint256(RStatus.ONE));
-    }
-
+contract MinimalDodoPMMDeploymentConfigTest is AMMTestBase {
     function testConstructorRejectsInvalidPoolConfiguration() public {
         vm.expectRevert(bytes("IDENTICAL_TOKENS"));
         _newPoolWithTokens(address(base), address(base), maintainer);
@@ -60,16 +42,101 @@ contract MinimalDodoPMMUnitTest is AMMTestBase {
         _newPoolWithTokens(address(base), address(quote), address(0));
     }
 
-    function testConstructorRejectsNon18DecimalTokens() public {
+    function testConstructorSupportsNon18DecimalTokensAndRejectsOver18Decimals() public {
+        MockERC20 sixBase = new MockERC20("Six Base", "SIXB", 6);
         MockERC20 sixDecimals = new MockERC20("Six", "SIX", 6);
+        MinimalDodoPMM sixDecimalPool = _newPoolWithTokens(address(sixBase), address(sixDecimals), maintainer);
 
-        vm.expectRevert(bytes("BASE_DECIMALS_NOT_18"));
-        _newPoolWithTokens(address(sixDecimals), address(quote), maintainer);
+        assertEq(sixDecimalPool.baseTokenDecimals(), 6);
+        assertEq(sixDecimalPool.quoteTokenDecimals(), 6);
+        assertEq(sixDecimalPool.baseTokenScale(), 1e12);
+        assertEq(sixDecimalPool.quoteTokenScale(), 1e12);
 
-        vm.expectRevert(bytes("QUOTE_DECIMALS_NOT_18"));
-        _newPoolWithTokens(address(base), address(sixDecimals), maintainer);
+        MockERC20 nineteenDecimals = new MockERC20("Nineteen", "NINE", 19);
+
+        vm.expectRevert(bytes("BASE_DECIMALS_GT_18"));
+        _newPoolWithTokens(address(nineteenDecimals), address(quote), maintainer);
+
+        vm.expectRevert(bytes("QUOTE_DECIMALS_GT_18"));
+        _newPoolWithTokens(address(base), address(nineteenDecimals), maintainer);
     }
 
+    function testInitialPoolStateTracksTargetsAndMidPrice() public {
+        (uint256 expectedBaseTarget, uint256 expectedQuoteTarget) = pool.getExpectedTarget();
+
+        assertEq(pool.totalSupply(), 100 * ONE);
+        assertEq(pool.baseBalance(), INITIAL_BASE);
+        assertEq(pool.quoteBalance(), INITIAL_QUOTE);
+        assertEq(pool.targetBaseTokenAmount(), INITIAL_BASE);
+        assertEq(pool.targetQuoteTokenAmount(), INITIAL_QUOTE);
+        assertEq(uint256(pool.rStatus()), uint256(RStatus.ONE));
+        assertEq(expectedBaseTarget, INITIAL_BASE);
+        assertEq(expectedQuoteTarget, INITIAL_QUOTE);
+        assertEq(pool.getValuationPrice(), INITIAL_PRICE);
+        assertEq(pool.getEffectiveK(), pool.k());
+        assertEq(pool.getMidPrice(), INITIAL_PRICE);
+        _assertTrackedBalancesAtMostActual();
+    }
+
+    function testAccessControlAndParameterGuards() public {
+        vm.prank(outsider);
+        vm.expectRevert(bytes("NOT_OWNER"));
+        pool.setK(2e17);
+
+        vm.prank(outsider);
+        vm.expectRevert(bytes("NOT_OWNER"));
+        pool.setAgeAdjustedK(7e17, 0);
+
+        vm.prank(outsider);
+        vm.expectRevert(bytes("NOT_SUPERVISOR_OR_OWNER"));
+        pool.disableTrading();
+
+        vm.expectRevert(bytes("K=0"));
+        pool.setK(0);
+
+        vm.expectRevert(bytes("K>=1"));
+        pool.setK(ONE);
+
+        vm.expectRevert(bytes("MAX_K<K"));
+        pool.setAgeAdjustedK(1e17 - 1, 0);
+
+        vm.expectRevert(bytes("MAX_K>=1"));
+        pool.setAgeAdjustedK(ONE, 0);
+
+        vm.expectRevert(bytes("BUY_TAX_RATE>=1"));
+        pool.setBuyTaxRate(ONE);
+
+        vm.expectRevert(bytes("FEE_RATE>=1"));
+        pool.setSellTaxRate(997e15);
+
+        pool.setMaintainerFeeRate(0);
+        pool.setMaintainer(address(0));
+
+        vm.expectRevert(bytes("MAINTAINER_NOT_SET"));
+        pool.setMaintainerFeeRate(1);
+
+        vm.expectRevert(bytes("INVALID_MIN_VALUATION_PRICE"));
+        pool.setValuationValidation(1 hours, 0, 100 * ONE);
+
+        vm.expectRevert(bytes("INVALID_MAX_VALUATION_PRICE"));
+        pool.setValuationValidation(1 hours, 100 * ONE, 99 * ONE);
+
+        vm.expectRevert(bytes("INVALID_VALUATION_STALENESS"));
+        pool.setValuationValidation(0, 1, 100 * ONE);
+    }
+
+    function testOnlyNeededAdminSurfaceIsPresent() public {
+        assertEq(pool.owner(), address(this));
+        assertEq(pool.supervisor(), supervisor);
+        assertEq(pool.maintainer(), maintainer);
+        assertEq(pool.balanceOf(lpProvider), pool.totalSupply());
+        assertTrue(pool.tradingEnabled());
+        assertTrue(pool.buyingEnabled());
+        assertTrue(pool.sellingEnabled());
+    }
+}
+
+contract MinimalDodoPMMValuationTest is AMMTestBase {
     function testValuationRejectsZeroStaleFutureAndOutOfRangePrices() public {
         vm.expectRevert(bytes("INVALID_VALUATION_PRICE"));
         pool.setValuationPrice(0);
@@ -107,23 +174,6 @@ contract MinimalDodoPMMUnitTest is AMMTestBase {
 
         pool.setValuationPrice(111 * ONE);
         assertEq(pool.getValuationPrice(), 111 * ONE);
-    }
-
-    function testInitialPoolStateTracksTargetsAndMidPrice() public {
-        (uint256 expectedBaseTarget, uint256 expectedQuoteTarget) = pool.getExpectedTarget();
-
-        assertEq(pool.totalSupply(), 100 * ONE);
-        assertEq(pool.baseBalance(), INITIAL_BASE);
-        assertEq(pool.quoteBalance(), INITIAL_QUOTE);
-        assertEq(pool.targetBaseTokenAmount(), INITIAL_BASE);
-        assertEq(pool.targetQuoteTokenAmount(), INITIAL_QUOTE);
-        assertEq(uint256(pool.rStatus()), uint256(RStatus.ONE));
-        assertEq(expectedBaseTarget, INITIAL_BASE);
-        assertEq(expectedQuoteTarget, INITIAL_QUOTE);
-        assertEq(pool.getValuationPrice(), INITIAL_PRICE);
-        assertEq(pool.getEffectiveK(), pool.k());
-        assertEq(pool.getMidPrice(), INITIAL_PRICE);
-        _assertTrackedBalancesAtMostActual();
     }
 
     function testEffectiveKGrowsWithValuationAgeAndCapsAtMaxK() public {
@@ -171,51 +221,16 @@ contract MinimalDodoPMMUnitTest is AMMTestBase {
         assertGt(pool.queryBuyBaseToken(ONE), freshBuyQuote);
         assertLt(pool.querySellBaseToken(ONE), freshSellQuote);
     }
+}
 
-    function testBuyTaxChargesExtraQuoteAndKeepsPoolAccounting() public {
-        uint256 buyAmount = ONE;
-        uint256 untaxedQuote = pool.queryBuyBaseToken(buyAmount);
-
-        pool.setTaxRecipient(taxRecipient);
-        pool.setBuyTaxRate(5e16);
-        pool.enableTax();
-
-        uint256 taxedQuote = pool.queryBuyBaseToken(buyAmount);
-        uint256 expectedTax = (untaxedQuote * 5e16) / ONE;
-
-        assertEq(taxedQuote, untaxedQuote + expectedTax);
-
-        vm.prank(trader);
-        vm.expectRevert(bytes("BUY_BASE_COST_TOO_MUCH"));
-        pool.buyBaseToken(buyAmount, untaxedQuote);
-
-        uint256 traderQuoteBefore = quote.balanceOf(trader);
-        uint256 poolQuoteBefore = pool.quoteBalance();
-        uint256 taxQuoteBefore = quote.balanceOf(taxRecipient);
-
-        vm.prank(trader);
-        uint256 totalPaid = pool.buyBaseToken(buyAmount, taxedQuote);
-
-        assertEq(totalPaid, taxedQuote);
-        assertEq(traderQuoteBefore - quote.balanceOf(trader), taxedQuote);
-        assertEq(pool.quoteBalance() - poolQuoteBefore, untaxedQuote);
-        assertEq(quote.balanceOf(taxRecipient) - taxQuoteBefore, expectedTax);
-    }
-
-    function testBuyPaysMaintainerInBaseAndMovesPoolAboveOne() public {
-        uint256 buyAmount = ONE;
-        uint256 maintainerBaseBefore = base.balanceOf(maintainer);
-        uint256 poolBaseBefore = pool.baseBalance();
-        uint256 totalPaid = pool.queryBuyBaseToken(buyAmount);
-
-        vm.prank(trader);
-        pool.buyBaseToken(buyAmount, totalPaid);
-
-        uint256 maintainerBasePaid = base.balanceOf(maintainer) - maintainerBaseBefore;
-
-        assertGt(maintainerBasePaid, 0);
-        assertEq(pool.baseBalance() + buyAmount + maintainerBasePaid, poolBaseBefore);
-        assertEq(uint256(pool.rStatus()), uint256(RStatus.ABOVE_ONE));
+contract MinimalDodoPMMLiquidityTest is AMMTestBase {
+    struct LiquiditySnapshot {
+        uint256 supply;
+        uint256 baseBalance;
+        uint256 quoteBalance;
+        uint256 baseTarget;
+        uint256 quoteTarget;
+        uint256 rStatus;
     }
 
     function testPublicLpTokenCanTransferAndWithdraw() public {
@@ -241,31 +256,6 @@ contract MinimalDodoPMMUnitTest is AMMTestBase {
         assertGt(quoteOut, 0);
     }
 
-    function testLpTokenTransferFromUsesAllowance() public {
-        uint256 transferAmount = pool.balanceOf(lpProvider) / 4;
-
-        vm.prank(lpProvider);
-        assertTrue(pool.approve(outsider, transferAmount));
-
-        vm.prank(outsider);
-        assertTrue(pool.transferFrom(lpProvider, lpReceiver, transferAmount));
-
-        assertEq(pool.balanceOf(lpReceiver), transferAmount);
-        assertEq(pool.allowance(lpProvider, outsider), 0);
-    }
-
-    function testLpTokenTransferFromWithMaxAllowanceDoesNotDecreaseAllowance() public {
-        uint256 transferAmount = pool.balanceOf(lpProvider) / 4;
-
-        vm.prank(lpProvider);
-        pool.approve(outsider, type(uint256).max);
-
-        vm.prank(outsider);
-        assertTrue(pool.transferFrom(lpProvider, lpReceiver, transferAmount));
-
-        assertEq(pool.allowance(lpProvider, outsider), type(uint256).max);
-    }
-
     function testProvideLiquidityMintsProRataSharesForSecondLP() public {
         _mintAndApprove(secondProvider, 5 * ONE, 500 * ONE);
 
@@ -286,7 +276,7 @@ contract MinimalDodoPMMUnitTest is AMMTestBase {
         assertEq(pool.targetQuoteTokenAmount(), 1500 * ONE);
     }
 
-    function testProvideLiquidityRevertsOnZeroOrUnbalancedState() public {
+    function testProvideLiquidityRejectsZeroAndAllowsUnbalancedProRata() public {
         _mintAndApprove(secondProvider, 5 * ONE, 500 * ONE);
 
         vm.prank(secondProvider);
@@ -297,9 +287,113 @@ contract MinimalDodoPMMUnitTest is AMMTestBase {
         vm.prank(trader);
         pool.buyBaseToken(ONE, totalPaid);
 
+        LiquiditySnapshot memory beforeState = LiquiditySnapshot({
+            supply: pool.totalSupply(),
+            baseBalance: pool.baseBalance(),
+            quoteBalance: pool.quoteBalance(),
+            baseTarget: pool.targetBaseTokenAmount(),
+            quoteTarget: pool.targetQuoteTokenAmount(),
+            rStatus: uint256(pool.rStatus())
+        });
+        uint256 expectedSharesFromBase = (5 * ONE * beforeState.supply) / beforeState.baseBalance;
+        uint256 expectedSharesFromQuote = (500 * ONE * beforeState.supply) / beforeState.quoteBalance;
+        uint256 expectedShares =
+            expectedSharesFromBase < expectedSharesFromQuote ? expectedSharesFromBase : expectedSharesFromQuote;
+        uint256 expectedBaseAdded = (expectedShares * beforeState.baseBalance) / beforeState.supply;
+        uint256 expectedQuoteAdded = (expectedShares * beforeState.quoteBalance) / beforeState.supply;
+
         vm.prank(secondProvider);
-        vm.expectRevert(bytes("NOT_BALANCED"));
-        pool.provideLiquidity(5 * ONE, 500 * ONE, 0);
+        (uint256 sharesMinted, uint256 baseAdded, uint256 quoteAdded) = pool.provideLiquidity(5 * ONE, 500 * ONE, 0);
+
+        assertEq(sharesMinted, expectedShares);
+        assertEq(baseAdded, expectedBaseAdded);
+        assertEq(quoteAdded, expectedQuoteAdded);
+        assertEq(pool.baseBalance(), beforeState.baseBalance + expectedBaseAdded);
+        assertEq(pool.quoteBalance(), beforeState.quoteBalance + expectedQuoteAdded);
+        assertEq(
+            pool.targetBaseTokenAmount(),
+            beforeState.baseTarget + ((beforeState.baseTarget * expectedShares) / beforeState.supply)
+        );
+        assertEq(
+            pool.targetQuoteTokenAmount(),
+            beforeState.quoteTarget + ((beforeState.quoteTarget * expectedShares) / beforeState.supply)
+        );
+        assertEq(uint256(pool.rStatus()), beforeState.rStatus);
+    }
+
+    function testSecondLiquidityUsesFullPrecisionMathWhenIntermediateProductWouldOverflow() public {
+        MockERC20 hugeBase = new MockERC20("Huge Base", "HBASE", 18);
+        MockERC20 hugeQuote = new MockERC20("Huge Quote", "HQUOTE", 18);
+        MinimalDodoPMM hugePool = _newPoolWithTokens(address(hugeBase), address(hugeQuote), maintainer);
+
+        uint256 initialBase = uint256(1) << 64;
+        uint256 initialQuote = uint256(1) << 191;
+        hugeBase.mint(lpProvider, initialBase);
+        hugeQuote.mint(lpProvider, initialQuote);
+
+        vm.startPrank(lpProvider);
+        hugeBase.approve(address(hugePool), type(uint256).max);
+        hugeQuote.approve(address(hugePool), type(uint256).max);
+        hugePool.provideLiquidity(initialBase, initialQuote, 0);
+        vm.stopPrank();
+
+        uint256 baseMax = uint256(1) << 150;
+        uint256 quoteMax = uint256(1) << 129;
+        uint256 supply = hugePool.totalSupply();
+        assertGt(baseMax, type(uint256).max / supply);
+
+        hugeBase.mint(secondProvider, baseMax);
+        hugeQuote.mint(secondProvider, quoteMax);
+        vm.startPrank(secondProvider);
+        hugeBase.approve(address(hugePool), type(uint256).max);
+        hugeQuote.approve(address(hugePool), type(uint256).max);
+        (uint256 sharesMinted, uint256 baseAdded, uint256 quoteAdded) = hugePool.provideLiquidity(baseMax, quoteMax, 0);
+        vm.stopPrank();
+
+        assertGt(sharesMinted, 0);
+        assertGt(baseAdded, 0);
+        assertGt(quoteAdded, 0);
+        assertLe(baseAdded, baseMax);
+        assertLe(quoteAdded, quoteMax);
+    }
+
+    function testSixDecimalPoolUsesNativeTokenAmountsAndWadAccounting() public {
+        MockERC20 sixBase = new MockERC20("Six Base", "SIXB", 6);
+        MockERC20 sixQuote = new MockERC20("Six Quote", "SIXQ", 6);
+        MinimalDodoPMM sixPool = _newPoolWithTokens(address(sixBase), address(sixQuote), maintainer);
+
+        uint256 nativeBaseLiquidity = 10e6;
+        uint256 nativeQuoteLiquidity = 1000e6;
+        sixBase.mint(lpProvider, nativeBaseLiquidity);
+        sixQuote.mint(lpProvider, nativeQuoteLiquidity);
+
+        vm.startPrank(lpProvider);
+        sixBase.approve(address(sixPool), type(uint256).max);
+        sixQuote.approve(address(sixPool), type(uint256).max);
+        (uint256 sharesMinted, uint256 baseAdded, uint256 quoteAdded) =
+            sixPool.provideLiquidity(nativeBaseLiquidity, nativeQuoteLiquidity, 0);
+        vm.stopPrank();
+
+        assertEq(sharesMinted, 100 * ONE);
+        assertEq(baseAdded, nativeBaseLiquidity);
+        assertEq(quoteAdded, nativeQuoteLiquidity);
+        assertEq(sixPool.baseBalance(), INITIAL_BASE);
+        assertEq(sixPool.quoteBalance(), INITIAL_QUOTE);
+        assertEq(sixBase.balanceOf(address(sixPool)), nativeBaseLiquidity);
+        assertEq(sixQuote.balanceOf(address(sixPool)), nativeQuoteLiquidity);
+
+        sixPool.enableTrading();
+        sixQuote.mint(trader, 1000e6);
+        vm.startPrank(trader);
+        sixQuote.approve(address(sixPool), type(uint256).max);
+        uint256 quotePaid = sixPool.queryBuyBaseToken(1e6);
+        uint256 traderBaseBefore = sixBase.balanceOf(trader);
+        sixPool.buyBaseToken(1e6, quotePaid);
+        vm.stopPrank();
+
+        assertEq(sixBase.balanceOf(trader) - traderBaseBefore, 1e6);
+        assertEq(sixQuote.balanceOf(address(sixPool)), nativeQuoteLiquidity + quotePaid);
+        assertGt(sixPool.quoteBalance(), INITIAL_QUOTE);
     }
 
     function testWithdrawLiquidityWorksWhenPoolIsUnbalanced() public {
@@ -374,6 +468,68 @@ contract MinimalDodoPMMUnitTest is AMMTestBase {
         vm.expectRevert(bytes("QUOTE_BALANCE_NOT_ENOUGH"));
         pool.recoverToken(address(quote), address(this), 1);
     }
+}
+
+contract MinimalDodoPMMTradingTaxTest is AMMTestBase {
+    function testTradesRejectZeroAmountWithoutChangingState() public {
+        vm.prank(trader);
+        vm.expectRevert(bytes("ZERO_AMOUNT"));
+        pool.buyBaseToken(0, 0);
+
+        assertEq(uint256(pool.rStatus()), uint256(RStatus.ONE));
+
+        vm.prank(trader);
+        vm.expectRevert(bytes("ZERO_AMOUNT"));
+        pool.sellBaseToken(0, 0);
+
+        assertEq(uint256(pool.rStatus()), uint256(RStatus.ONE));
+    }
+
+    function testBuyTaxChargesExtraQuoteAndKeepsPoolAccounting() public {
+        uint256 buyAmount = ONE;
+        uint256 untaxedQuote = pool.queryBuyBaseToken(buyAmount);
+
+        pool.setTaxRecipient(taxRecipient);
+        pool.setBuyTaxRate(5e16);
+        pool.enableTax();
+
+        uint256 taxedQuote = pool.queryBuyBaseToken(buyAmount);
+        uint256 expectedTax = (untaxedQuote * 5e16) / ONE;
+
+        assertEq(taxedQuote, untaxedQuote + expectedTax);
+
+        vm.prank(trader);
+        vm.expectRevert(bytes("BUY_BASE_COST_TOO_MUCH"));
+        pool.buyBaseToken(buyAmount, untaxedQuote);
+
+        uint256 traderQuoteBefore = quote.balanceOf(trader);
+        uint256 poolQuoteBefore = pool.quoteBalance();
+        uint256 taxQuoteBefore = quote.balanceOf(taxRecipient);
+
+        vm.prank(trader);
+        uint256 totalPaid = pool.buyBaseToken(buyAmount, taxedQuote);
+
+        assertEq(totalPaid, taxedQuote);
+        assertEq(traderQuoteBefore - quote.balanceOf(trader), taxedQuote);
+        assertEq(pool.quoteBalance() - poolQuoteBefore, untaxedQuote);
+        assertEq(quote.balanceOf(taxRecipient) - taxQuoteBefore, expectedTax);
+    }
+
+    function testBuyPaysMaintainerInBaseAndMovesPoolAboveOne() public {
+        uint256 buyAmount = ONE;
+        uint256 maintainerBaseBefore = base.balanceOf(maintainer);
+        uint256 poolBaseBefore = pool.baseBalance();
+        uint256 totalPaid = pool.queryBuyBaseToken(buyAmount);
+
+        vm.prank(trader);
+        pool.buyBaseToken(buyAmount, totalPaid);
+
+        uint256 maintainerBasePaid = base.balanceOf(maintainer) - maintainerBaseBefore;
+
+        assertGt(maintainerBasePaid, 0);
+        assertEq(pool.baseBalance() + buyAmount + maintainerBasePaid, poolBaseBefore);
+        assertEq(uint256(pool.rStatus()), uint256(RStatus.ABOVE_ONE));
+    }
 
     function testSellTaxReducesTraderProceedsAndKeepsPoolAccounting() public {
         uint256 sellAmount = ONE;
@@ -421,6 +577,13 @@ contract MinimalDodoPMMUnitTest is AMMTestBase {
         assertEq(quote.balanceOf(trader) - traderQuoteBefore, traderReceived);
         assertEq(uint256(pool.rStatus()), uint256(RStatus.BELOW_ONE));
     }
+}
+
+contract MinimalDodoPMMControlsTest is AMMTestBase {
+    function testEnableTaxRequiresRecipient() public {
+        vm.expectRevert(bytes("TAX_RECIPIENT_NOT_SET"));
+        pool.enableTax();
+    }
 
     function testSupervisorCanPauseTradingAndOwnerCanResume() public {
         vm.prank(supervisor);
@@ -467,54 +630,9 @@ contract MinimalDodoPMMUnitTest is AMMTestBase {
         pool.setTaxRecipient(address(0));
         assertEq(pool.taxRecipient(), address(0));
     }
+}
 
-    function testAccessControlAndParameterGuards() public {
-        vm.prank(outsider);
-        vm.expectRevert(bytes("NOT_OWNER"));
-        pool.setK(2e17);
-
-        vm.prank(outsider);
-        vm.expectRevert(bytes("NOT_OWNER"));
-        pool.setAgeAdjustedK(7e17, 0);
-
-        vm.prank(outsider);
-        vm.expectRevert(bytes("NOT_SUPERVISOR_OR_OWNER"));
-        pool.disableTrading();
-
-        vm.expectRevert(bytes("K=0"));
-        pool.setK(0);
-
-        vm.expectRevert(bytes("K>=1"));
-        pool.setK(ONE);
-
-        vm.expectRevert(bytes("MAX_K<K"));
-        pool.setAgeAdjustedK(1e17 - 1, 0);
-
-        vm.expectRevert(bytes("MAX_K>=1"));
-        pool.setAgeAdjustedK(ONE, 0);
-
-        vm.expectRevert(bytes("BUY_TAX_RATE>=1"));
-        pool.setBuyTaxRate(ONE);
-
-        vm.expectRevert(bytes("FEE_RATE>=1"));
-        pool.setSellTaxRate(997e15);
-
-        pool.setMaintainerFeeRate(0);
-        pool.setMaintainer(address(0));
-
-        vm.expectRevert(bytes("MAINTAINER_NOT_SET"));
-        pool.setMaintainerFeeRate(1);
-
-        vm.expectRevert(bytes("INVALID_MIN_VALUATION_PRICE"));
-        pool.setValuationValidation(1 hours, 0, 100 * ONE);
-
-        vm.expectRevert(bytes("INVALID_MAX_VALUATION_PRICE"));
-        pool.setValuationValidation(1 hours, 100 * ONE, 99 * ONE);
-
-        vm.expectRevert(bytes("INVALID_VALUATION_STALENESS"));
-        pool.setValuationValidation(0, 1, 100 * ONE);
-    }
-
+contract MinimalDodoPMMDividendTest is AMMTestBase {
     function testClaimQuoteDividendsAddsClaimedQuoteAsSurplusReserve() public {
         MockDividendDistributor dividend = new MockDividendDistributor(quote);
         quote.mint(address(dividend), 25 * ONE);
@@ -587,15 +705,5 @@ contract MinimalDodoPMMUnitTest is AMMTestBase {
 
         vm.expectRevert(bytes("NO_DIVIDEND_CLAIMED"));
         pool.claimQuoteDividends(address(dividend), type(uint256).max);
-    }
-
-    function testOnlyNeededAdminSurfaceIsPresent() public {
-        assertEq(pool.owner(), address(this));
-        assertEq(pool.supervisor(), supervisor);
-        assertEq(pool.maintainer(), maintainer);
-        assertEq(pool.balanceOf(lpProvider), pool.totalSupply());
-        assertTrue(pool.tradingEnabled());
-        assertTrue(pool.buyingEnabled());
-        assertTrue(pool.sellingEnabled());
     }
 }

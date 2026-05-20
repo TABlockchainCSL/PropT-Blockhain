@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
-import {DecimalMath} from "../libraries/DecimalMath.sol";
-import {MathHelpers} from "../libraries/MathHelpers.sol";
-import {ValuationMath} from "../libraries/ValuationMath.sol";
 import {PricingState} from "../types/PMMTypes.sol";
 import {AMMRoles} from "./AMMRoles.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 abstract contract AMMConfig is AMMRoles {
+    uint256 internal constant WAD = 1e18;
     uint256 public constant DEFAULT_VALUATION_MAX_STALENESS = 180 days;
     uint256 public constant DEFAULT_MAX_K = 7e17;
 
@@ -66,7 +65,7 @@ abstract contract AMMConfig is AMMRoles {
         maintainerFeeRate = maintainerFeeRate_;
         k = k_;
         maxK = k_ > DEFAULT_MAX_K ? k_ : DEFAULT_MAX_K;
-        kGrowthPerSecond = MathHelpers.ceilDiv(maxK - k_, DEFAULT_VALUATION_MAX_STALENESS);
+        kGrowthPerSecond = FixedPointMathLib.divUp(maxK - k_, DEFAULT_VALUATION_MAX_STALENESS);
         valuationMaxStaleness = DEFAULT_VALUATION_MAX_STALENESS;
         minValuationPrice = 1;
         maxValuationPrice = type(uint256).max;
@@ -196,16 +195,26 @@ abstract contract AMMConfig is AMMRoles {
     }
 
     function _getEffectiveK(uint256 updatedAt) internal view returns (uint256) {
-        return ValuationMath.effectiveK(k, maxK, kGrowthPerSecond, updatedAt, block.timestamp);
+        uint256 kRoom = maxK - k;
+        if (kGrowthPerSecond == 0 || kRoom == 0) {
+            return k;
+        }
+
+        uint256 age = block.timestamp - updatedAt;
+        if (age >= FixedPointMathLib.divUp(kRoom, kGrowthPerSecond)) {
+            return maxK;
+        }
+
+        return k + (age * kGrowthPerSecond);
     }
 
     function _checkParameters() internal view {
         require(k > 0, "K=0");
-        require(k < DecimalMath.ONE, "K>=1");
+        require(k < WAD, "K>=1");
         require(maxK >= k, "MAX_K<K");
-        require(maxK < DecimalMath.ONE, "MAX_K>=1");
-        require(buyTaxRate < DecimalMath.ONE, "BUY_TAX_RATE>=1");
-        require(lpFeeRate + maintainerFeeRate + sellTaxRate < DecimalMath.ONE, "FEE_RATE>=1");
+        require(maxK < WAD, "MAX_K>=1");
+        require(buyTaxRate < WAD, "BUY_TAX_RATE>=1");
+        require(lpFeeRate + maintainerFeeRate + sellTaxRate < WAD, "FEE_RATE>=1");
         require(maintainer != address(0) || maintainerFeeRate == 0, "MAINTAINER_NOT_SET");
     }
 }

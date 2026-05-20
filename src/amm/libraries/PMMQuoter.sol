@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
-import {DecimalMath} from "./DecimalMath.sol";
 import {PMMMath} from "./PMMMath.sol";
 import {BuyQuote, PoolState, PricingState, RStatus, SellQuote, TargetState} from "../types/PMMTypes.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 library PMMQuoter {
+    uint256 private constant WAD = 1e18;
+
     function expectedTarget(PoolState memory pool, PricingState memory pricing)
         internal
         pure
@@ -28,16 +30,17 @@ library PMMQuoter {
     function midPrice(PoolState memory pool, PricingState memory pricing) internal pure returns (uint256) {
         TargetState memory target = expectedTarget(pool, pricing);
         if (pool.rStatus == RStatus.BELOW_ONE) {
-            uint256 belowRatio =
-                DecimalMath.divFloor((target.quoteTarget * target.quoteTarget) / pool.quoteBalance, pool.quoteBalance);
-            belowRatio = DecimalMath.ONE - pricing.effectiveK + DecimalMath.mul(pricing.effectiveK, belowRatio);
-            return DecimalMath.divFloor(pricing.price, belowRatio);
+            uint256 belowRatio = FixedPointMathLib.divWad(
+                (target.quoteTarget * target.quoteTarget) / pool.quoteBalance, pool.quoteBalance
+            );
+            belowRatio = WAD - pricing.effectiveK + FixedPointMathLib.mulWad(pricing.effectiveK, belowRatio);
+            return FixedPointMathLib.divWad(pricing.price, belowRatio);
         }
 
         uint256 aboveRatio =
-            DecimalMath.divFloor((target.baseTarget * target.baseTarget) / pool.baseBalance, pool.baseBalance);
-        aboveRatio = DecimalMath.ONE - pricing.effectiveK + DecimalMath.mul(pricing.effectiveK, aboveRatio);
-        return DecimalMath.mul(pricing.price, aboveRatio);
+            FixedPointMathLib.divWad((target.baseTarget * target.baseTarget) / pool.baseBalance, pool.baseBalance);
+        aboveRatio = WAD - pricing.effectiveK + FixedPointMathLib.mulWad(pricing.effectiveK, aboveRatio);
+        return FixedPointMathLib.mulWad(pricing.price, aboveRatio);
     }
 
     function querySellBaseToken(PoolState memory pool, PricingState memory pricing, uint256 amount)
@@ -59,8 +62,8 @@ library PMMQuoter {
             quote.newRStatus = RStatus.BELOW_ONE;
         }
 
-        quote.lpFeeQuote = DecimalMath.mul(quote.receiveQuote, pool.lpFeeRate);
-        quote.maintainerFeeQuote = DecimalMath.mul(quote.receiveQuote, pool.maintainerFeeRate);
+        quote.lpFeeQuote = FixedPointMathLib.mulWad(quote.receiveQuote, pool.lpFeeRate);
+        quote.maintainerFeeQuote = FixedPointMathLib.mulWad(quote.receiveQuote, pool.maintainerFeeRate);
         quote.sellTaxQuote = _taxQuote(pool, quote.receiveQuote, pool.sellTaxRate);
         quote.receiveQuote = quote.receiveQuote - quote.lpFeeQuote - quote.maintainerFeeQuote - quote.sellTaxQuote;
     }
@@ -74,8 +77,8 @@ library PMMQuoter {
         quote.newBaseTarget = target.baseTarget;
         quote.newQuoteTarget = target.quoteTarget;
 
-        quote.lpFeeBase = DecimalMath.mul(amount, pool.lpFeeRate);
-        quote.maintainerFeeBase = DecimalMath.mul(amount, pool.maintainerFeeRate);
+        quote.lpFeeBase = FixedPointMathLib.mulWad(amount, pool.lpFeeRate);
+        quote.maintainerFeeBase = FixedPointMathLib.mulWad(amount, pool.maintainerFeeRate);
         uint256 buyBaseAmount = amount + quote.lpFeeBase + quote.maintainerFeeBase;
 
         if (pool.rStatus == RStatus.ONE) {
@@ -144,7 +147,11 @@ library PMMQuoter {
         returns (uint256)
     {
         uint256 q2 = PMMMath.solveQuadraticFunctionForTrade(
-            targetQuoteAmount, targetQuoteAmount, DecimalMath.mul(pricing.price, amount), false, pricing.effectiveK
+            targetQuoteAmount,
+            targetQuoteAmount,
+            FixedPointMathLib.mulWad(pricing.price, amount),
+            false,
+            pricing.effectiveK
         );
         return targetQuoteAmount - q2;
     }
@@ -165,7 +172,11 @@ library PMMQuoter {
         PricingState memory pricing
     ) private pure returns (uint256) {
         uint256 q2 = PMMMath.solveQuadraticFunctionForTrade(
-            targetQuoteAmount, currentQuoteBalance, DecimalMath.mul(pricing.price, amount), false, pricing.effectiveK
+            targetQuoteAmount,
+            currentQuoteBalance,
+            FixedPointMathLib.mulWad(pricing.price, amount),
+            false,
+            pricing.effectiveK
         );
         return currentQuoteBalance - q2;
     }
@@ -177,7 +188,11 @@ library PMMQuoter {
         PricingState memory pricing
     ) private pure returns (uint256) {
         uint256 q2 = PMMMath.solveQuadraticFunctionForTrade(
-            targetQuoteAmount, currentQuoteBalance, DecimalMath.mulCeil(pricing.price, amount), true, pricing.effectiveK
+            targetQuoteAmount,
+            currentQuoteBalance,
+            FixedPointMathLib.mulWadUp(pricing.price, amount),
+            true,
+            pricing.effectiveK
         );
         return q2 - currentQuoteBalance;
     }
@@ -203,7 +218,7 @@ library PMMQuoter {
 
     function _rBelowBackToOne(PoolState memory pool, PricingState memory pricing) private pure returns (uint256) {
         uint256 spareBase = pool.baseBalance - pool.targetBaseTokenAmount;
-        uint256 fairAmount = DecimalMath.mul(spareBase, pricing.price);
+        uint256 fairAmount = FixedPointMathLib.mulWad(spareBase, pricing.price);
         uint256 newTargetQuote =
             PMMMath.solveQuadraticFunctionForTarget(pool.quoteBalance, pricing.effectiveK, fairAmount);
         return newTargetQuote - pool.quoteBalance;
@@ -211,7 +226,7 @@ library PMMQuoter {
 
     function _rAboveBackToOne(PoolState memory pool, PricingState memory pricing) private pure returns (uint256) {
         uint256 spareQuote = pool.quoteBalance - pool.targetQuoteTokenAmount;
-        uint256 fairAmount = DecimalMath.divFloor(spareQuote, pricing.price);
+        uint256 fairAmount = FixedPointMathLib.divWad(spareQuote, pricing.price);
         uint256 newTargetBase =
             PMMMath.solveQuadraticFunctionForTarget(pool.baseBalance, pricing.effectiveK, fairAmount);
         return newTargetBase - pool.baseBalance;
@@ -230,6 +245,6 @@ library PMMQuoter {
             return 0;
         }
         require(pool.taxRecipient != address(0), "INVALID_TAX_RECIPIENT");
-        return DecimalMath.mul(quoteAmount, taxRate);
+        return FixedPointMathLib.mulWad(quoteAmount, taxRate);
     }
 }

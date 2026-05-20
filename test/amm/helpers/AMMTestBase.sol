@@ -3,14 +3,15 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {MinimalDodoPMM} from "../../../src/amm/MinimalDodoPMM.sol";
-import {IERC20Minimal} from "../../../src/amm/interfaces/IERC20Minimal.sol";
 import {RStatus} from "../../../src/amm/types/PMMTypes.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
-contract MockERC20 is IERC20Minimal {
+contract MockERC20 is IERC20Metadata {
     string public name;
     string public symbol;
     uint8 public immutable DECIMALS;
 
+    uint256 public totalSupply;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
@@ -25,6 +26,7 @@ contract MockERC20 is IERC20Minimal {
     }
 
     function mint(address to, uint256 amount) external {
+        totalSupply += amount;
         balanceOf[to] += amount;
     }
 
@@ -48,7 +50,6 @@ contract MockERC20 is IERC20Minimal {
         allowance[msg.sender][spender] = amount;
         return true;
     }
-
 }
 
 abstract contract AMMTestBase is Test {

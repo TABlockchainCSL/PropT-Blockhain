@@ -2,12 +2,13 @@
 pragma solidity ^0.8.24;
 
 import {AMMConfig} from "./base/AMMConfig.sol";
-import {EmbeddedLPToken} from "./base/EmbeddedLPToken.sol";
-import {ReentrancyGuardLite} from "./base/ReentrancyGuardLite.sol";
-import {IERC20Minimal} from "./interfaces/IERC20Minimal.sol";
-import {MathHelpers} from "./libraries/MathHelpers.sol";
 import {PMMQuoter} from "./libraries/PMMQuoter.sol";
 import {BuyQuote, PoolState, RStatus, SellQuote, TargetState} from "./types/PMMTypes.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 interface IDividendDistributionMinimal {
     function stablecoin() external view returns (address);
@@ -15,11 +16,15 @@ interface IDividendDistributionMinimal {
     function pendingDividends(address investor, uint256 maxEpochs) external view returns (uint256);
 }
 
-contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
+contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
     uint8 public constant TOKEN_DECIMALS = 18;
 
-    IERC20Minimal public immutable baseToken;
-    IERC20Minimal public immutable quoteToken;
+    IERC20Metadata public immutable baseToken;
+    IERC20Metadata public immutable quoteToken;
+    uint8 public immutable baseTokenDecimals;
+    uint8 public immutable quoteTokenDecimals;
+    uint256 public immutable baseTokenScale;
+    uint256 public immutable quoteTokenScale;
 
     bool public tradingEnabled;
     bool public buyingEnabled;
@@ -71,24 +76,31 @@ contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
         string memory shareName_,
         string memory shareSymbol_
     )
-        EmbeddedLPToken(shareName_, shareSymbol_)
+        ERC20(shareName_, shareSymbol_)
         AMMConfig(owner_, supervisor_, maintainer_, initialValuationPrice_, lpFeeRate_, maintainerFeeRate_, k_)
     {
         require(baseToken_ != address(0), "INVALID_BASE_TOKEN");
         require(quoteToken_ != address(0), "INVALID_QUOTE_TOKEN");
         require(baseToken_ != quoteToken_, "IDENTICAL_TOKENS");
-        require(IERC20Minimal(baseToken_).decimals() == TOKEN_DECIMALS, "BASE_DECIMALS_NOT_18");
-        require(IERC20Minimal(quoteToken_).decimals() == TOKEN_DECIMALS, "QUOTE_DECIMALS_NOT_18");
 
-        baseToken = IERC20Minimal(baseToken_);
-        quoteToken = IERC20Minimal(quoteToken_);
+        uint8 baseDecimals_ = IERC20Metadata(baseToken_).decimals();
+        uint8 quoteDecimals_ = IERC20Metadata(quoteToken_).decimals();
+        require(baseDecimals_ <= TOKEN_DECIMALS, "BASE_DECIMALS_GT_18");
+        require(quoteDecimals_ <= TOKEN_DECIMALS, "QUOTE_DECIMALS_GT_18");
+
+        baseToken = IERC20Metadata(baseToken_);
+        quoteToken = IERC20Metadata(quoteToken_);
+        baseTokenDecimals = baseDecimals_;
+        quoteTokenDecimals = quoteDecimals_;
+        baseTokenScale = 10 ** (TOKEN_DECIMALS - baseDecimals_);
+        quoteTokenScale = 10 ** (TOKEN_DECIMALS - quoteDecimals_);
         buyingEnabled = true;
         sellingEnabled = true;
         rStatus = RStatus.ONE;
     }
 
     function enableTrading() external onlyOwner {
-        require(baseBalance > 0 && quoteBalance > 0 && totalSupply > 0, "POOL_NOT_FUNDED");
+        require(baseBalance > 0 && quoteBalance > 0 && totalSupply() > 0, "POOL_NOT_FUNDED");
         emit TradingEnabledUpdated(tradingEnabled, true);
         tradingEnabled = true;
     }
@@ -123,12 +135,18 @@ contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
         require(to != address(0), "INVALID_RECEIVER");
 
         if (token == address(baseToken)) {
-            require(baseToken.balanceOf(address(this)) >= baseBalance + amount, "BASE_BALANCE_NOT_ENOUGH");
+            require(
+                baseToken.balanceOf(address(this)) >= _baseTokenFromWadUp(baseBalance) + amount,
+                "BASE_BALANCE_NOT_ENOUGH"
+            );
         } else if (token == address(quoteToken)) {
-            require(quoteToken.balanceOf(address(this)) >= quoteBalance + amount, "QUOTE_BALANCE_NOT_ENOUGH");
+            require(
+                quoteToken.balanceOf(address(this)) >= _quoteTokenFromWadUp(quoteBalance) + amount,
+                "QUOTE_BALANCE_NOT_ENOUGH"
+            );
         }
 
-        require(IERC20Minimal(token).transfer(to, amount), "TOKEN_TRANSFER_FAILED");
+        require(IERC20(token).transfer(to, amount), "TOKEN_TRANSFER_FAILED");
         emit TokenRecovered(token, to, amount);
     }
 
@@ -152,7 +170,7 @@ contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
         quoteAmount = quoteToken.balanceOf(address(this)) - balanceBefore;
         require(quoteAmount > 0, "NO_DIVIDEND_CLAIMED");
 
-        quoteBalance += quoteAmount;
+        quoteBalance += _quoteTokenToWad(quoteAmount);
         if (rStatus == RStatus.ONE) {
             rStatus = RStatus.ABOVE_ONE;
         }
@@ -166,26 +184,35 @@ contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
         returns (uint256 sharesMinted, uint256 baseAmount, uint256 quoteAmount)
     {
         require(baseAmountMax > 0 && quoteAmountMax > 0, "NO_LIQUIDITY");
-        require(rStatus == RStatus.ONE, "NOT_BALANCED");
 
-        if (totalSupply == 0) {
-            baseAmount = baseAmountMax;
-            quoteAmount = quoteAmountMax;
-            sharesMinted = MathHelpers.sqrt(baseAmount * quoteAmount);
+        uint256 baseAmountMaxWad = _baseTokenToWad(baseAmountMax);
+        uint256 quoteAmountMaxWad = _quoteTokenToWad(quoteAmountMax);
+        uint256 baseAmountWad;
+        uint256 quoteAmountWad;
+        uint256 supply = totalSupply();
+        if (supply == 0) {
+            baseAmountWad = baseAmountMaxWad;
+            quoteAmountWad = quoteAmountMaxWad;
+            sharesMinted = FixedPointMathLib.sqrt(baseAmountWad * quoteAmountWad);
         } else {
-            uint256 sharesFromBase = (baseAmountMax * totalSupply) / baseBalance;
-            uint256 sharesFromQuote = (quoteAmountMax * totalSupply) / quoteBalance;
+            uint256 sharesFromBase = FixedPointMathLib.fullMulDiv(baseAmountMaxWad, supply, baseBalance);
+            uint256 sharesFromQuote = FixedPointMathLib.fullMulDiv(quoteAmountMaxWad, supply, quoteBalance);
             sharesMinted = sharesFromBase < sharesFromQuote ? sharesFromBase : sharesFromQuote;
-            baseAmount = (sharesMinted * baseBalance) / totalSupply;
-            quoteAmount = (sharesMinted * quoteBalance) / totalSupply;
+            baseAmountWad = FixedPointMathLib.fullMulDiv(sharesMinted, baseBalance, supply);
+            quoteAmountWad = FixedPointMathLib.fullMulDiv(sharesMinted, quoteBalance, supply);
         }
         require(sharesMinted >= minShares, "INSUFFICIENT_SHARES");
-        require(sharesMinted > 0 && baseAmount > 0 && quoteAmount > 0, "ZERO_SHARES");
+        require(sharesMinted > 0 && baseAmountWad > 0 && quoteAmountWad > 0, "ZERO_SHARES");
 
-        _baseTokenTransferIn(msg.sender, baseAmount);
-        _quoteTokenTransferIn(msg.sender, quoteAmount);
-        targetBaseTokenAmount += baseAmount;
-        targetQuoteTokenAmount += quoteAmount;
+        baseAmount = _baseTokenTransferIn(msg.sender, baseAmountWad);
+        quoteAmount = _quoteTokenTransferIn(msg.sender, quoteAmountWad);
+        if (supply == 0) {
+            targetBaseTokenAmount += baseAmountWad;
+            targetQuoteTokenAmount += quoteAmountWad;
+        } else {
+            targetBaseTokenAmount += FixedPointMathLib.fullMulDiv(targetBaseTokenAmount, sharesMinted, supply);
+            targetQuoteTokenAmount += FixedPointMathLib.fullMulDiv(targetQuoteTokenAmount, sharesMinted, supply);
+        }
         _mint(msg.sender, sharesMinted);
 
         emit LiquidityProvided(msg.sender, baseAmount, quoteAmount, sharesMinted);
@@ -197,37 +224,39 @@ contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
         returns (uint256 baseAmount, uint256 quoteAmount)
     {
         require(sharesBurned > 0, "ZERO_SHARES");
-        require(sharesBurned <= balanceOf[msg.sender], "INSUFFICIENT_SHARES");
+        require(sharesBurned <= balanceOf(msg.sender), "INSUFFICIENT_SHARES");
 
-        uint256 supply = totalSupply;
+        uint256 supply = totalSupply();
         uint256 baseTarget = targetBaseTokenAmount;
         uint256 quoteTarget = targetQuoteTokenAmount;
-        baseAmount = (baseBalance * sharesBurned) / supply;
-        quoteAmount = (quoteBalance * sharesBurned) / supply;
+        uint256 baseAmountWad = FixedPointMathLib.fullMulDiv(baseBalance, sharesBurned, supply);
+        uint256 quoteAmountWad = FixedPointMathLib.fullMulDiv(quoteBalance, sharesBurned, supply);
+        baseAmount = _baseTokenFromWadDown(baseAmountWad);
+        quoteAmount = _quoteTokenFromWadDown(quoteAmountWad);
         require(baseAmount >= minBaseAmount, "BASE_AMOUNT_NOT_ENOUGH");
         require(quoteAmount >= minQuoteAmount, "QUOTE_AMOUNT_NOT_ENOUGH");
 
         _burn(msg.sender, sharesBurned);
-        if (totalSupply == 0) {
+        if (totalSupply() == 0) {
             _resetEmptyPool();
         } else {
-            targetBaseTokenAmount = baseTarget - ((baseTarget * sharesBurned) / supply);
-            targetQuoteTokenAmount = quoteTarget - ((quoteTarget * sharesBurned) / supply);
+            targetBaseTokenAmount = baseTarget - FixedPointMathLib.fullMulDiv(baseTarget, sharesBurned, supply);
+            targetQuoteTokenAmount = quoteTarget - FixedPointMathLib.fullMulDiv(quoteTarget, sharesBurned, supply);
         }
-        _baseTokenTransferOut(msg.sender, baseAmount);
-        _quoteTokenTransferOut(msg.sender, quoteAmount);
+        _baseTokenTransferOut(msg.sender, baseAmountWad);
+        _quoteTokenTransferOut(msg.sender, quoteAmountWad);
 
         emit LiquidityWithdrawn(msg.sender, baseAmount, quoteAmount, sharesBurned);
     }
 
     function querySellBaseToken(uint256 amount) external view returns (uint256 receiveQuote) {
-        SellQuote memory quote = PMMQuoter.querySellBaseToken(_poolState(), _getPricingState(), amount);
-        return quote.receiveQuote;
+        SellQuote memory quote = PMMQuoter.querySellBaseToken(_poolState(), _getPricingState(), _baseTokenToWad(amount));
+        return _quoteTokenFromWadDown(quote.receiveQuote);
     }
 
     function queryBuyBaseToken(uint256 amount) external view returns (uint256 payQuote) {
-        BuyQuote memory quote = PMMQuoter.queryBuyBaseToken(_poolState(), _getPricingState(), amount);
-        return quote.payQuote + quote.buyTaxQuote;
+        BuyQuote memory quote = PMMQuoter.queryBuyBaseToken(_poolState(), _getPricingState(), _baseTokenToWad(amount));
+        return _quoteTokenFromWadUp(quote.payQuote) + _quoteTokenFromWadUp(quote.buyTaxQuote);
     }
 
     function sellBaseToken(uint256 amount, uint256 minReceiveQuote)
@@ -238,16 +267,17 @@ contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
         returns (uint256 receiveQuote)
     {
         require(amount > 0, "ZERO_AMOUNT");
-        SellQuote memory quote = PMMQuoter.querySellBaseToken(_poolState(), _getPricingState(), amount);
-        require(quote.receiveQuote >= minReceiveQuote, "SELL_BASE_RECEIVE_NOT_ENOUGH");
+        uint256 amountWad = _baseTokenToWad(amount);
+        SellQuote memory quote = PMMQuoter.querySellBaseToken(_poolState(), _getPricingState(), amountWad);
+        receiveQuote = _quoteTokenFromWadDown(quote.receiveQuote);
+        require(receiveQuote >= minReceiveQuote, "SELL_BASE_RECEIVE_NOT_ENOUGH");
 
         _quoteTokenTransferOut(msg.sender, quote.receiveQuote);
-        _baseTokenTransferIn(msg.sender, amount);
+        _baseTokenTransferIn(msg.sender, amountWad);
         _chargeSellFees(quote);
         _applySellState(quote);
 
-        emit SellBaseToken(msg.sender, amount, quote.receiveQuote);
-        return quote.receiveQuote;
+        emit SellBaseToken(msg.sender, amount, receiveQuote);
     }
 
     function buyBaseToken(uint256 amount, uint256 maxPayQuote)
@@ -258,11 +288,12 @@ contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
         returns (uint256 totalPayQuote)
     {
         require(amount > 0, "ZERO_AMOUNT");
-        BuyQuote memory quote = PMMQuoter.queryBuyBaseToken(_poolState(), _getPricingState(), amount);
-        totalPayQuote = quote.payQuote + quote.buyTaxQuote;
+        uint256 amountWad = _baseTokenToWad(amount);
+        BuyQuote memory quote = PMMQuoter.queryBuyBaseToken(_poolState(), _getPricingState(), amountWad);
+        totalPayQuote = _quoteTokenFromWadUp(quote.payQuote) + _quoteTokenFromWadUp(quote.buyTaxQuote);
         require(totalPayQuote <= maxPayQuote, "BUY_BASE_COST_TOO_MUCH");
 
-        _baseTokenTransferOut(msg.sender, amount);
+        _baseTokenTransferOut(msg.sender, amountWad);
         _quoteTokenTransferIn(msg.sender, quote.payQuote);
         _chargeBuyFees(quote);
         _applyBuyState(quote);
@@ -308,25 +339,25 @@ contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
 
     function _chargeSellFees(SellQuote memory quote) internal {
         if (quote.maintainerFeeQuote > 0) {
-            _quoteTokenTransferOut(maintainer, quote.maintainerFeeQuote);
-            emit ChargeMaintainerFee(maintainer, false, quote.maintainerFeeQuote);
+            uint256 maintainerFee = _quoteTokenTransferOut(maintainer, quote.maintainerFeeQuote);
+            emit ChargeMaintainerFee(maintainer, false, maintainerFee);
         }
 
         if (quote.sellTaxQuote > 0) {
-            _quoteTokenTransferOut(taxRecipient, quote.sellTaxQuote);
-            emit ChargeTax(taxRecipient, quote.sellTaxQuote, false);
+            uint256 sellTax = _quoteTokenTransferOut(taxRecipient, quote.sellTaxQuote);
+            emit ChargeTax(taxRecipient, sellTax, false);
         }
     }
 
     function _chargeBuyFees(BuyQuote memory quote) internal {
         if (quote.buyTaxQuote > 0) {
-            _quoteTokenTransferFrom(msg.sender, taxRecipient, quote.buyTaxQuote);
-            emit ChargeTax(taxRecipient, quote.buyTaxQuote, true);
+            uint256 buyTax = _quoteTokenTransferFrom(msg.sender, taxRecipient, quote.buyTaxQuote);
+            emit ChargeTax(taxRecipient, buyTax, true);
         }
 
         if (quote.maintainerFeeBase > 0) {
-            _baseTokenTransferOut(maintainer, quote.maintainerFeeBase);
-            emit ChargeMaintainerFee(maintainer, true, quote.maintainerFeeBase);
+            uint256 maintainerFee = _baseTokenTransferOut(maintainer, quote.maintainerFeeBase);
+            emit ChargeMaintainerFee(maintainer, true, maintainerFee);
         }
     }
 
@@ -342,37 +373,66 @@ contract MinimalDodoPMM is EmbeddedLPToken, AMMConfig, ReentrancyGuardLite {
         rStatus = quote.newRStatus;
     }
 
-    function _baseTokenTransferIn(address from, uint256 amount) internal {
+    function _baseTokenTransferIn(address from, uint256 amountWad) internal returns (uint256 amount) {
+        amount = _baseTokenFromWadUp(amountWad);
         uint256 balanceBefore = baseToken.balanceOf(address(this));
         require(baseToken.transferFrom(from, address(this), amount), "BASE_TRANSFER_FROM_FAILED");
         uint256 received = baseToken.balanceOf(address(this)) - balanceBefore;
         require(received == amount, "BASE_TRANSFER_IN_MISMATCH");
-        baseBalance += received;
+        baseBalance += amountWad;
     }
 
-    function _quoteTokenTransferIn(address from, uint256 amount) internal {
+    function _quoteTokenTransferIn(address from, uint256 amountWad) internal returns (uint256 amount) {
+        amount = _quoteTokenFromWadUp(amountWad);
         uint256 balanceBefore = quoteToken.balanceOf(address(this));
         require(quoteToken.transferFrom(from, address(this), amount), "QUOTE_TRANSFER_FROM_FAILED");
         uint256 received = quoteToken.balanceOf(address(this)) - balanceBefore;
         require(received == amount, "QUOTE_TRANSFER_IN_MISMATCH");
-        quoteBalance += received;
+        quoteBalance += amountWad;
     }
 
-    function _baseTokenTransferOut(address to, uint256 amount) internal {
+    function _baseTokenTransferOut(address to, uint256 amountWad) internal returns (uint256 amount) {
+        amount = _baseTokenFromWadDown(amountWad);
         uint256 balanceBefore = baseToken.balanceOf(address(this));
-        baseBalance -= amount;
+        baseBalance -= amountWad;
         require(baseToken.transfer(to, amount), "BASE_TRANSFER_FAILED");
         require(balanceBefore - baseToken.balanceOf(address(this)) == amount, "BASE_TRANSFER_OUT_MISMATCH");
     }
 
-    function _quoteTokenTransferOut(address to, uint256 amount) internal {
+    function _quoteTokenTransferOut(address to, uint256 amountWad) internal returns (uint256 amount) {
+        amount = _quoteTokenFromWadDown(amountWad);
         uint256 balanceBefore = quoteToken.balanceOf(address(this));
-        quoteBalance -= amount;
+        quoteBalance -= amountWad;
         require(quoteToken.transfer(to, amount), "QUOTE_TRANSFER_FAILED");
         require(balanceBefore - quoteToken.balanceOf(address(this)) == amount, "QUOTE_TRANSFER_OUT_MISMATCH");
     }
 
-    function _quoteTokenTransferFrom(address from, address to, uint256 amount) internal {
+    function _quoteTokenTransferFrom(address from, address to, uint256 amountWad) internal returns (uint256 amount) {
+        amount = _quoteTokenFromWadUp(amountWad);
         require(quoteToken.transferFrom(from, to, amount), "QUOTE_TRANSFER_FROM_FAILED");
+    }
+
+    function _baseTokenToWad(uint256 amount) internal view returns (uint256) {
+        return amount * baseTokenScale;
+    }
+
+    function _quoteTokenToWad(uint256 amount) internal view returns (uint256) {
+        return amount * quoteTokenScale;
+    }
+
+    function _baseTokenFromWadDown(uint256 amountWad) internal view returns (uint256) {
+        return amountWad / baseTokenScale;
+    }
+
+    function _quoteTokenFromWadDown(uint256 amountWad) internal view returns (uint256) {
+        return amountWad / quoteTokenScale;
+    }
+
+    function _baseTokenFromWadUp(uint256 amountWad) internal view returns (uint256) {
+        return FixedPointMathLib.divUp(amountWad, baseTokenScale);
+    }
+
+    function _quoteTokenFromWadUp(uint256 amountWad) internal view returns (uint256) {
+        return FixedPointMathLib.divUp(amountWad, quoteTokenScale);
     }
 }

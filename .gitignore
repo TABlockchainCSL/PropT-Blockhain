@@ -2,6 +2,8 @@
 out/
 cache/
 broadcast/
+lib/solady/
+test/amm/ImpermanentLossComparison.t.sol
 
 # Environment
 .env

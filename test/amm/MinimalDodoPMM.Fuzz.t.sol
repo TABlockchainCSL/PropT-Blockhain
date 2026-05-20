@@ -2,11 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
-import {MathHelpers} from "../../src/amm/libraries/MathHelpers.sol";
 import {RStatus} from "../../src/amm/types/PMMTypes.sol";
 import {AMMTestBase, MockERC20} from "./helpers/AMMTestBase.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract MinimalDodoPMMFuzzTest is AMMTestBase {
+    // Quotes and valuation behavior.
     function testFuzzQuoteQueriesGrowWithOrderSize(uint96 rawSmall, uint96 rawLarge) public {
         uint256 small = bound(uint256(rawSmall), 1, ONE);
         uint256 large = bound(uint256(rawLarge), small + 1, 2 * ONE);
@@ -55,6 +56,7 @@ contract MinimalDodoPMMFuzzTest is AMMTestBase {
         assertLe(agedQuote, freshQuote + 1);
     }
 
+    // Liquidity share accounting.
     function testFuzzFirstLiquidityMintEqualsSqrt(uint96 rawBaseAmount, uint96 rawQuoteAmount) public {
         uint256 baseAmount = bound(uint256(rawBaseAmount), 1e12, 1000 * ONE);
         uint256 quoteAmount = bound(uint256(rawQuoteAmount), 1e12, 100_000 * ONE);
@@ -72,7 +74,7 @@ contract MinimalDodoPMMFuzzTest is AMMTestBase {
             freshPool.provideLiquidity(baseAmount, quoteAmount, 0);
         vm.stopPrank();
 
-        assertEq(sharesMinted, MathHelpers.sqrt(baseAmount * quoteAmount));
+        assertEq(sharesMinted, FixedPointMathLib.sqrt(baseAmount * quoteAmount));
         assertEq(baseAdded, baseAmount);
         assertEq(quoteAdded, quoteAmount);
         assertEq(freshPool.balanceOf(secondProvider), sharesMinted);
@@ -112,6 +114,7 @@ contract MinimalDodoPMMFuzzTest is AMMTestBase {
         assertEq(pool.totalSupply(), supplyBefore - shares);
     }
 
+    // Fee and tax accounting.
     function testFuzzBuyTaxAccounting(uint96 rawAmount, uint96 rawTaxRate) public {
         uint256 amount = bound(uint256(rawAmount), 1, ONE);
         uint256 taxRate = bound(uint256(rawTaxRate), 1, 2e17);
@@ -156,6 +159,7 @@ contract MinimalDodoPMMFuzzTest is AMMTestBase {
         assertEq(quoteBefore - pool.quoteBalance(), traderReceived + maintainerPaid + taxPaid);
     }
 
+    // Config and PMM status transitions.
     function testFuzzValidParameterUpdatesAreAccepted(uint96 rawK, uint96 rawMaxK, uint96 rawLpFee, uint96 rawMaintFee)
         public
     {

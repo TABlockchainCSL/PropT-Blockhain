@@ -9,6 +9,7 @@ remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
     "forge-std/=lib/openzeppelin-contracts/lib/forge-std/src/",
+    "solady/=lib/solady/src/",
 ]
 
 solc_version = "0.8.24"
