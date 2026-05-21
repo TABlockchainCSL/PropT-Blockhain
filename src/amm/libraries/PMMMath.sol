@@ -9,6 +9,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 library PMMMath {
     uint256 private constant WAD = 1e18;
 
+    /// @notice Integrate the PMM curve between two inventory points.
     function generalIntegrate(uint256 v0, uint256 v1, uint256 v2, uint256 i, uint256 k)
         internal
         pure
@@ -19,6 +20,7 @@ library PMMMath {
         return FixedPointMathLib.mulWad(fairAmount, WAD - k + penalty);
     }
 
+    /// @notice Solve the DODO PMM trade equation for the new reserve.
     function solveQuadraticFunctionForTrade(uint256 q0, uint256 q1, uint256 iDeltaB, bool deltaBSig, uint256 k)
         internal
         pure
@@ -52,6 +54,7 @@ library PMMMath {
             : FixedPointMathLib.divWadUp(numerator, denominator);
     }
 
+    /// @notice Solve the DODO PMM target equation after inventory moves.
     function solveQuadraticFunctionForTarget(uint256 v1, uint256 k, uint256 fairAmount)
         internal
         pure

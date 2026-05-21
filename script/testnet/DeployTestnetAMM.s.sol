@@ -3,8 +3,9 @@ pragma solidity ^0.8.24;
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
-import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {TestnetERC20} from "../../src/amm/testnet/TestnetERC20.sol";
+import {TestnetKYCRegistry} from "../../src/amm/testnet/TestnetKYCRegistry.sol";
 
 contract DeployTestnetAMMScript is Script {
     uint256 internal constant ONE = 1e18;
@@ -17,16 +18,20 @@ contract DeployTestnetAMMScript is Script {
     uint256 internal constant MAINTAINER_FEE_RATE = 0;
     uint256 internal constant DEFAULT_K = 1e17;
 
-    function run() external returns (MinimalDodoPMM pool) {
+    function run() external returns (PropertyPMM pool) {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(privateKey);
 
         vm.startBroadcast(privateKey);
 
+        TestnetKYCRegistry kyc = new TestnetKYCRegistry();
+        kyc.setVerified(deployer, true);
+
         TestnetERC20 base = new TestnetERC20("PropT Test Property", "tPROP", 18);
         TestnetERC20 quote = new TestnetERC20("PropT Test Rupiah", "tIDR", 18);
+        base.setKycRegistry(address(kyc));
 
-        pool = new MinimalDodoPMM(
+        pool = new PropertyPMM(
             deployer,
             deployer,
             address(0),
@@ -54,6 +59,7 @@ contract DeployTestnetAMMScript is Script {
         console2.log("pool:", address(pool));
         console2.log("base:", address(base));
         console2.log("quote:", address(quote));
+        console2.log("kyc:", address(kyc));
         console2.log("initialValuationPrice:", INITIAL_PRICE);
         console2.log("initialBaseLiquidity:", INITIAL_BASE_LIQUIDITY);
         console2.log("initialQuoteLiquidity:", INITIAL_QUOTE_LIQUIDITY);

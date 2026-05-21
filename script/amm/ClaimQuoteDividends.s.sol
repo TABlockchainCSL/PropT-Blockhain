@@ -2,12 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {console2} from "forge-std/console2.sol";
-import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {AMMScriptBase} from "./AMMScriptBase.s.sol";
 
 contract ClaimQuoteDividendsScript is AMMScriptBase {
     function run() external returns (uint256 quoteAmount) {
-        MinimalDodoPMM pool = _pool();
+        PropertyPMM pool = _pool();
         uint256 privateKey = _privateKey();
         address dividendDistributor = vm.envAddress("DIVIDEND_DISTRIBUTOR");
         uint256 maxEpochs = vm.envOr("MAX_EPOCHS", type(uint256).max);

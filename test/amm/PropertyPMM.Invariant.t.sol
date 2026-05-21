@@ -2,14 +2,14 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {RStatus} from "../../src/amm/types/PMMTypes.sol";
 import {AMMTestBase, MockERC20} from "./helpers/AMMTestBase.sol";
 
-contract MinimalDodoPMMHandler is Test {
+contract PropertyPMMHandler is Test {
     uint256 internal constant ONE = 1e18;
 
-    MinimalDodoPMM public pool;
+    PropertyPMM public pool;
     MockERC20 public base;
     MockERC20 public quote;
 
@@ -29,7 +29,7 @@ contract MinimalDodoPMMHandler is Test {
     uint256 public pauseCalls;
 
     constructor(
-        MinimalDodoPMM pool_,
+        PropertyPMM pool_,
         MockERC20 base_,
         MockERC20 quote_,
         address owner_,
@@ -203,16 +203,15 @@ contract MinimalDodoPMMHandler is Test {
     }
 }
 
-contract MinimalDodoPMMInvariantTest is AMMTestBase {
-    MinimalDodoPMMHandler internal handler;
+contract PropertyPMMInvariantTest is AMMTestBase {
+    PropertyPMMHandler internal handler;
 
     function setUp() public override {
         vm.warp(365 days);
         super.setUp();
 
         address[] memory actors = _actorSet();
-        handler =
-            new MinimalDodoPMMHandler(pool, base, quote, address(this), supervisor, maintainer, taxRecipient, actors);
+        handler = new PropertyPMMHandler(pool, base, quote, address(this), supervisor, maintainer, taxRecipient, actors);
 
         bytes4[] memory selectors = new bytes4[](8);
         selectors[0] = handler.provideLiquidity.selector;

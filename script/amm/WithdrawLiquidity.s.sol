@@ -2,12 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {console2} from "forge-std/console2.sol";
-import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {AMMScriptBase} from "./AMMScriptBase.s.sol";
 
 contract WithdrawLiquidityScript is AMMScriptBase {
     function run() external returns (uint256 baseAmount, uint256 quoteAmount) {
-        MinimalDodoPMM pool = _pool();
+        PropertyPMM pool = _pool();
         uint256 privateKey = _privateKey();
         uint256 shares = vm.envUint("SHARES");
         uint256 minBaseAmount = vm.envOr("MIN_BASE_AMOUNT", uint256(0));

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
-import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {RStatus} from "../../src/amm/types/PMMTypes.sol";
 import {AMMTestBase, MockERC20} from "./helpers/AMMTestBase.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-contract MinimalDodoPMMFuzzTest is AMMTestBase {
+contract PropertyPMMFuzzTest is AMMTestBase {
     // Quotes and valuation behavior.
     function testFuzzQuoteQueriesGrowWithOrderSize(uint96 rawSmall, uint96 rawLarge) public {
         uint256 small = bound(uint256(rawSmall), 1, ONE);
@@ -62,7 +62,8 @@ contract MinimalDodoPMMFuzzTest is AMMTestBase {
         uint256 quoteAmount = bound(uint256(rawQuoteAmount), 1e12, 100_000 * ONE);
         MockERC20 freshBase = new MockERC20("Fresh Base", "FB", 18);
         MockERC20 freshQuote = new MockERC20("Fresh Quote", "FQ", 18);
-        MinimalDodoPMM freshPool = _newPoolWithTokens(address(freshBase), address(freshQuote), maintainer);
+        _setTokenKycRegistry(address(freshBase));
+        PropertyPMM freshPool = _newPoolWithTokens(address(freshBase), address(freshQuote), maintainer);
 
         freshBase.mint(secondProvider, baseAmount);
         freshQuote.mint(secondProvider, quoteAmount);

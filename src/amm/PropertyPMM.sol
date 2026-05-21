@@ -2,38 +2,75 @@
 pragma solidity ^0.8.24;
 
 import {AMMConfig} from "./base/AMMConfig.sol";
+import {AMMLPDividends} from "./base/AMMLPDividends.sol";
 import {PMMQuoter} from "./libraries/PMMQuoter.sol";
 import {BuyQuote, PoolState, RStatus, SellQuote, TargetState} from "./types/PMMTypes.sol";
+import {IKYCRegistry} from "../interfaces/IKYCRegistry.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
+/// @notice Interface for claiming quote-token dividends.
 interface IDividendDistributionMinimal {
     function stablecoin() external view returns (address);
     function claimDividends(uint256 maxEpochs) external;
     function pendingDividends(address investor, uint256 maxEpochs) external view returns (uint256);
 }
 
-contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
+/// @notice Minimal property-token surface needed to infer the KYC registry.
+interface IPropertyTokenKYC {
+    function kycRegistry() external view returns (IKYCRegistry);
+}
+
+/// @title PropertyPMM
+/// @notice PMM pool for trading property tokens against a quote token. Quote = Stablecoin, Base = PropertyToken.
+/// @dev LP shares are ERC20 tokens; reserves are tracked internally in 18-decimal WAD units.
+contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
     uint8 public constant TOKEN_DECIMALS = 18;
 
+    /// @notice Token sold by the pool (Property Token).
     IERC20Metadata public immutable baseToken;
+    /// @notice Quote token used to price trades (Stablecoin).
     IERC20Metadata public immutable quoteToken;
+    /// @notice KYC registry inferred from the base property token.
+    IKYCRegistry public immutable kycRegistry;
+
+    /// Decimal Adjustment for supporting non 18-decimal tokens.
+
+    /// @notice Native decimals of the base token.
     uint8 public immutable baseTokenDecimals;
+    /// @notice Native decimals of the quote token.
     uint8 public immutable quoteTokenDecimals;
+
+    /// @notice Multiplier converting base token amounts to 18 decimals.
     uint256 public immutable baseTokenScale;
+    /// @notice Multiplier converting quote token amounts to 18 decimals.
     uint256 public immutable quoteTokenScale;
 
+    /// Pause flags for emergencies and circuit breakers.
+
+    /// @notice Global switch for all swaps.
     bool public tradingEnabled;
+    /// @notice Directional switch for buyBaseToken.
     bool public buyingEnabled;
+    /// @notice Directional switch for sellBaseToken.
     bool public sellingEnabled;
 
+    /// Pricing and inventory state variables.
+
+    /// @notice PMM inventory status relative to the guide price (Discount, Premium, Balanced to Valuation).
     RStatus public rStatus;
+
+    /// @notice Current target base inventory in WAD units.
     uint256 public targetBaseTokenAmount;
+    /// @notice Current target quote inventory in WAD units.
     uint256 public targetQuoteTokenAmount;
+
+    /// @notice Tracked base reserve in WAD units.
     uint256 public baseBalance;
+    /// @notice Tracked quote reserve in WAD units.
     uint256 public quoteBalance;
 
     event LiquidityProvided(address indexed provider, uint256 baseAmount, uint256 quoteAmount, uint256 sharesMinted);
@@ -47,6 +84,10 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
     event SellingEnabledUpdated(bool oldValue, bool newValue);
     event TokenRecovered(address indexed token, address indexed to, uint256 amount);
     event QuoteDividendsClaimed(address indexed dividendDistributor, uint256 quoteAmount);
+
+    error InvalidKYCRegistry();
+    error SenderNotAuthorized(address sender);
+    error RecipientNotAuthorized(address recipient);
 
     modifier whenTradingEnabled() {
         require(tradingEnabled, "TRADE_NOT_ALLOWED");
@@ -83,6 +124,9 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
         require(quoteToken_ != address(0), "INVALID_QUOTE_TOKEN");
         require(baseToken_ != quoteToken_, "IDENTICAL_TOKENS");
 
+        IKYCRegistry registry = IPropertyTokenKYC(baseToken_).kycRegistry();
+        if (address(registry) == address(0)) revert InvalidKYCRegistry();
+
         uint8 baseDecimals_ = IERC20Metadata(baseToken_).decimals();
         uint8 quoteDecimals_ = IERC20Metadata(quoteToken_).decimals();
         require(baseDecimals_ <= TOKEN_DECIMALS, "BASE_DECIMALS_GT_18");
@@ -90,6 +134,7 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
 
         baseToken = IERC20Metadata(baseToken_);
         quoteToken = IERC20Metadata(quoteToken_);
+        kycRegistry = registry;
         baseTokenDecimals = baseDecimals_;
         quoteTokenDecimals = quoteDecimals_;
         baseTokenScale = 10 ** (TOKEN_DECIMALS - baseDecimals_);
@@ -99,37 +144,45 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
         rStatus = RStatus.ONE;
     }
 
+    /// @notice Enable swaps once the pool is funded and valuation is clear.
     function enableTrading() external onlyOwner {
+        require(!valuationCircuitBreakerTripped, "VALUATION_CIRCUIT_BREAKER_ACTIVE");
         require(baseBalance > 0 && quoteBalance > 0 && totalSupply() > 0, "POOL_NOT_FUNDED");
         emit TradingEnabledUpdated(tradingEnabled, true);
         tradingEnabled = true;
     }
 
+    /// @notice Pause all swaps.
     function disableTrading() external onlySupervisorOrOwner {
         emit TradingEnabledUpdated(tradingEnabled, false);
         tradingEnabled = false;
     }
 
+    /// @notice Enable base-token buys.
     function enableBuying() external onlyOwner {
         emit BuyingEnabledUpdated(buyingEnabled, true);
         buyingEnabled = true;
     }
 
+    /// @notice Pause base-token buys.
     function disableBuying() external onlySupervisorOrOwner {
         emit BuyingEnabledUpdated(buyingEnabled, false);
         buyingEnabled = false;
     }
 
+    /// @notice Enable base-token sells.
     function enableSelling() external onlyOwner {
         emit SellingEnabledUpdated(sellingEnabled, true);
         sellingEnabled = true;
     }
 
+    /// @notice Pause base-token sells.
     function disableSelling() external onlySupervisorOrOwner {
         emit SellingEnabledUpdated(sellingEnabled, false);
         sellingEnabled = false;
     }
 
+    /// @notice Recover excess or stray tokens without touching tracked reserves.
     function recoverToken(address token, address to, uint256 amount) external onlyOwner nonReentrant {
         require(token != address(0), "INVALID_TOKEN");
         require(to != address(0), "INVALID_RECEIVER");
@@ -141,7 +194,8 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
             );
         } else if (token == address(quoteToken)) {
             require(
-                quoteToken.balanceOf(address(this)) >= _quoteTokenFromWadUp(quoteBalance) + amount,
+                quoteToken.balanceOf(address(this))
+                    >= _quoteTokenFromWadUp(quoteBalance) + totalPendingLpQuoteDividends + amount,
                 "QUOTE_BALANCE_NOT_ENOUGH"
             );
         }
@@ -150,11 +204,13 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
         emit TokenRecovered(token, to, amount);
     }
 
+    /// @notice Return pending quote-token dividends for this pool.
     function pendingQuoteDividends(address dividendDistributor, uint256 maxEpochs) external view returns (uint256) {
         require(dividendDistributor != address(0), "INVALID_DIVIDEND_DISTRIBUTOR");
         return IDividendDistributionMinimal(dividendDistributor).pendingDividends(address(this), maxEpochs);
     }
 
+    /// @notice Claim quote-token dividends and account them to LP shares.
     function claimQuoteDividends(address dividendDistributor, uint256 maxEpochs)
         external
         onlyOwner
@@ -170,14 +226,19 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
         quoteAmount = quoteToken.balanceOf(address(this)) - balanceBefore;
         require(quoteAmount > 0, "NO_DIVIDEND_CLAIMED");
 
-        quoteBalance += _quoteTokenToWad(quoteAmount);
-        if (rStatus == RStatus.ONE) {
-            rStatus = RStatus.ABOVE_ONE;
-        }
+        _accountLpQuoteDividends(quoteAmount);
 
         emit QuoteDividendsClaimed(dividendDistributor, quoteAmount);
     }
 
+    /// @notice Claim quote-token dividends earned by LP shares.
+    function claimLpQuoteDividends() external nonReentrant returns (uint256 quoteAmount) {
+        _checkLpAuthorized(msg.sender, true);
+        quoteAmount = _claimLpQuoteDividends(msg.sender);
+        require(quoteToken.transfer(msg.sender, quoteAmount), "QUOTE_TRANSFER_FAILED");
+    }
+
+    /// @notice Add liquidity and mint PMM LP shares.
     function provideLiquidity(uint256 baseAmountMax, uint256 quoteAmountMax, uint256 minShares)
         external
         nonReentrant
@@ -218,6 +279,7 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
         emit LiquidityProvided(msg.sender, baseAmount, quoteAmount, sharesMinted);
     }
 
+    /// @notice Burn PMM LP shares and withdraw proportional reserves.
     function withdrawLiquidity(uint256 sharesBurned, uint256 minBaseAmount, uint256 minQuoteAmount)
         external
         nonReentrant
@@ -249,16 +311,19 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
         emit LiquidityWithdrawn(msg.sender, baseAmount, quoteAmount, sharesBurned);
     }
 
+    /// @notice Quote how much quote token a base-token sell would receive.
     function querySellBaseToken(uint256 amount) external view returns (uint256 receiveQuote) {
         SellQuote memory quote = PMMQuoter.querySellBaseToken(_poolState(), _getPricingState(), _baseTokenToWad(amount));
         return _quoteTokenFromWadDown(quote.receiveQuote);
     }
 
+    /// @notice Quote how much quote token a base-token buy would cost.
     function queryBuyBaseToken(uint256 amount) external view returns (uint256 payQuote) {
         BuyQuote memory quote = PMMQuoter.queryBuyBaseToken(_poolState(), _getPricingState(), _baseTokenToWad(amount));
         return _quoteTokenFromWadUp(quote.payQuote) + _quoteTokenFromWadUp(quote.buyTaxQuote);
     }
 
+    /// @notice Sell base token to the pool for quote token.
     function sellBaseToken(uint256 amount, uint256 minReceiveQuote)
         external
         nonReentrant
@@ -280,6 +345,7 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
         emit SellBaseToken(msg.sender, amount, receiveQuote);
     }
 
+    /// @notice Buy base token from the pool with quote token.
     function buyBaseToken(uint256 amount, uint256 maxPayQuote)
         external
         nonReentrant
@@ -301,6 +367,7 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
         emit BuyBaseToken(msg.sender, amount, totalPayQuote);
     }
 
+    /// @notice Return the PMM target reserves for the current inventory state.
     function getExpectedTarget() public view returns (uint256 baseTarget, uint256 quoteTarget) {
         if (rStatus == RStatus.ONE) {
             return (targetBaseTokenAmount, targetQuoteTokenAmount);
@@ -309,8 +376,30 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
         return (target.baseTarget, target.quoteTarget);
     }
 
+    /// @notice Return the current PMM mid price.
     function getMidPrice() external view returns (uint256 midPrice) {
         return PMMQuoter.midPrice(_poolState(), _getPricingState());
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        _settleLpQuoteDividends(from);
+        if (to != from) {
+            _settleLpQuoteDividends(to);
+        }
+
+        if (from != address(0)) {
+            _checkLpAuthorized(from, true);
+        }
+        if (to != address(0)) {
+            _checkLpAuthorized(to, false);
+        }
+
+        super._update(from, to, value);
+
+        _syncLpQuoteDividendDebt(from);
+        if (to != from) {
+            _syncLpQuoteDividendDebt(to);
+        }
     }
 
     function _poolState() internal view returns (PoolState memory pool) {
@@ -334,6 +423,34 @@ contract MinimalDodoPMM is ERC20, AMMConfig, ReentrancyGuard {
         if (tradingEnabled) {
             emit TradingEnabledUpdated(tradingEnabled, false);
             tradingEnabled = false;
+        }
+    }
+
+    function _onValuationCircuitBreaker() internal override {
+        if (tradingEnabled) {
+            emit TradingEnabledUpdated(tradingEnabled, false);
+            tradingEnabled = false;
+        }
+    }
+
+    function _lpTotalSupply() internal view override returns (uint256) {
+        return totalSupply();
+    }
+
+    function _lpBalanceOf(address lp) internal view override returns (uint256) {
+        return balanceOf(lp);
+    }
+
+    function _checkLpAuthorized(address account, bool isSender) internal view {
+        if (kycRegistry.isApprovedContract(account)) {
+            return;
+        }
+
+        if (!kycRegistry.isVerified(account)) {
+            if (isSender) {
+                revert SenderNotAuthorized(account);
+            }
+            revert RecipientNotAuthorized(account);
         }
     }
 

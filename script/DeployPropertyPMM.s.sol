@@ -3,10 +3,10 @@ pragma solidity ^0.8.24;
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
-import {MinimalDodoPMM} from "../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../src/amm/PropertyPMM.sol";
 import {TestnetERC20} from "../src/amm/testnet/TestnetERC20.sol";
 
-contract DeployMinimalDodoPMMScript is Script {
+contract DeployPropertyPMMScript is Script {
     uint256 internal constant LP_FEE_RATE = 5e15;
     uint256 internal constant MAINTAINER_FEE_RATE = 0;
     uint256 internal constant DEFAULT_K = 1e17;
@@ -17,15 +17,14 @@ contract DeployMinimalDodoPMMScript is Script {
     string internal constant DEFAULT_QUOTE_NAME = "USD";
     string internal constant DEFAULT_QUOTE_SYMBOL = "USD";
 
-    function run() external returns (MinimalDodoPMM pool) {
+    function run() external returns (PropertyPMM pool) {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(privateKey);
 
         address baseToken = vm.envAddress("BASE_TOKEN");
         address quoteToken = vm.envOr("QUOTE_TOKEN", address(0));
         uint256 quoteMintAmount = vm.envOr("QUOTE_MINT_AMOUNT", DEFAULT_QUOTE_MINT_AMOUNT);
-        uint256 initialValuationPrice =
-            vm.envOr("INITIAL_VALUATION_PRICE", DEFAULT_INITIAL_VALUATION_PRICE);
+        uint256 initialValuationPrice = vm.envOr("INITIAL_VALUATION_PRICE", DEFAULT_INITIAL_VALUATION_PRICE);
 
         vm.startBroadcast(privateKey);
 
@@ -35,7 +34,7 @@ contract DeployMinimalDodoPMMScript is Script {
             quoteToken = address(quote);
         }
 
-        pool = new MinimalDodoPMM(
+        pool = new PropertyPMM(
             deployer,
             deployer,
             address(0),
@@ -51,7 +50,7 @@ contract DeployMinimalDodoPMMScript is Script {
 
         vm.stopBroadcast();
 
-        console2.log("MinimalDodoPMM deployed at:", address(pool));
+        console2.log("PropertyPMM deployed at:", address(pool));
         console2.log("owner:", deployer);
         console2.log("supervisor:", deployer);
         console2.log("maintainer:", address(0));

@@ -2,13 +2,13 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {AMMConfig} from "../../src/amm/base/AMMConfig.sol";
 import {AMMRoles} from "../../src/amm/base/AMMRoles.sol";
 import {TestnetERC20} from "../../src/amm/testnet/TestnetERC20.sol";
 import {PMMQuoter} from "../../src/amm/libraries/PMMQuoter.sol";
 import {BuyQuote, PoolState, PricingState, RStatus, SellQuote} from "../../src/amm/types/PMMTypes.sol";
-import {AMMTestBase, MockERC20} from "./helpers/AMMTestBase.sol";
+import {AMMTestBase} from "./helpers/AMMTestBase.sol";
 
 // Harnesses used only to exercise internal/library and failure-only branches.
 contract AMMConfigHarness is AMMConfig {
@@ -49,6 +49,7 @@ contract ConfigurableERC20 {
     string public name;
     string public symbol;
     uint8 public constant DECIMALS = 18;
+    address public kycRegistry;
     uint256 public totalSupply;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
@@ -64,6 +65,10 @@ contract ConfigurableERC20 {
 
     function decimals() external pure returns (uint8) {
         return DECIMALS;
+    }
+
+    function setKycRegistry(address newKycRegistry) external {
+        kycRegistry = newKycRegistry;
     }
 
     function setTransferBehavior(Behavior behavior) external {
@@ -135,7 +140,7 @@ contract PMMQuoterHarness {
 }
 
 // PMM edge cases that would make the main unit suite noisy.
-contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
+contract PropertyPMMEdgeCasesTest is AMMTestBase {
     PMMQuoterHarness internal quoter;
 
     function setUp() public override {
@@ -145,7 +150,7 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
 
     function testRoleManagementAndConstructorGuards() public {
         vm.expectRevert(bytes("INVALID_OWNER"));
-        new MinimalDodoPMM(
+        new PropertyPMM(
             address(0),
             supervisor,
             maintainer,
@@ -160,7 +165,7 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
         );
 
         vm.expectRevert(bytes("INVALID_BASE_TOKEN"));
-        new MinimalDodoPMM(
+        new PropertyPMM(
             address(this),
             supervisor,
             maintainer,
@@ -175,7 +180,7 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
         );
 
         vm.expectRevert(bytes("INVALID_QUOTE_TOKEN"));
-        new MinimalDodoPMM(
+        new PropertyPMM(
             address(this),
             supervisor,
             maintainer,
@@ -205,7 +210,7 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
     }
 
     function testEnableTradingRequiresFundedPool() public {
-        MinimalDodoPMM freshPool = _newPoolWithTokens(address(base), address(quote), maintainer);
+        PropertyPMM freshPool = _newPoolWithTokens(address(base), address(quote), maintainer);
 
         vm.expectRevert(bytes("POOL_NOT_FUNDED"));
         freshPool.enableTrading();
@@ -342,14 +347,14 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
     }
 
     function testTransferInFailureBranches() public {
-        (MinimalDodoPMM baseFalsePool, ConfigurableERC20 baseFalse,) = _freshConfigurablePool();
+        (PropertyPMM baseFalsePool, ConfigurableERC20 baseFalse,) = _freshConfigurablePool();
         baseFalse.setTransferFromBehavior(ConfigurableERC20.Behavior.ReturnFalse);
         _approveConfigurableLiquidity(baseFalsePool, baseFalse, ConfigurableERC20(address(baseFalsePool.quoteToken())));
         vm.prank(secondProvider);
         vm.expectRevert(bytes("BASE_TRANSFER_FROM_FAILED"));
         baseFalsePool.provideLiquidity(ONE, 100 * ONE, 0);
 
-        (MinimalDodoPMM baseMismatchPool, ConfigurableERC20 baseMismatch,) = _freshConfigurablePool();
+        (PropertyPMM baseMismatchPool, ConfigurableERC20 baseMismatch,) = _freshConfigurablePool();
         baseMismatch.setTransferFromBehavior(ConfigurableERC20.Behavior.TransferLess);
         _approveConfigurableLiquidity(
             baseMismatchPool, baseMismatch, ConfigurableERC20(address(baseMismatchPool.quoteToken()))
@@ -358,7 +363,7 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
         vm.expectRevert(bytes("BASE_TRANSFER_IN_MISMATCH"));
         baseMismatchPool.provideLiquidity(ONE, 100 * ONE, 0);
 
-        (MinimalDodoPMM quoteFalsePool,, ConfigurableERC20 quoteFalse) = _freshConfigurablePool();
+        (PropertyPMM quoteFalsePool,, ConfigurableERC20 quoteFalse) = _freshConfigurablePool();
         quoteFalse.setTransferFromBehavior(ConfigurableERC20.Behavior.ReturnFalse);
         _approveConfigurableLiquidity(
             quoteFalsePool, ConfigurableERC20(address(quoteFalsePool.baseToken())), quoteFalse
@@ -367,7 +372,7 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
         vm.expectRevert(bytes("QUOTE_TRANSFER_FROM_FAILED"));
         quoteFalsePool.provideLiquidity(ONE, 100 * ONE, 0);
 
-        (MinimalDodoPMM quoteMismatchPool,, ConfigurableERC20 quoteMismatch) = _freshConfigurablePool();
+        (PropertyPMM quoteMismatchPool,, ConfigurableERC20 quoteMismatch) = _freshConfigurablePool();
         quoteMismatch.setTransferFromBehavior(ConfigurableERC20.Behavior.TransferLess);
         _approveConfigurableLiquidity(
             quoteMismatchPool, ConfigurableERC20(address(quoteMismatchPool.baseToken())), quoteMismatch
@@ -378,35 +383,35 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
     }
 
     function testTransferOutAndTaxTransferFailureBranches() public {
-        (MinimalDodoPMM baseFalsePool, ConfigurableERC20 baseFalse,) = _seedConfigurablePool();
+        (PropertyPMM baseFalsePool, ConfigurableERC20 baseFalse,) = _seedConfigurablePool();
         uint256 buyQuote = baseFalsePool.queryBuyBaseToken(ONE);
         baseFalse.setTransferBehavior(ConfigurableERC20.Behavior.ReturnFalse);
         vm.prank(trader);
         vm.expectRevert(bytes("BASE_TRANSFER_FAILED"));
         baseFalsePool.buyBaseToken(ONE, buyQuote);
 
-        (MinimalDodoPMM baseMismatchPool, ConfigurableERC20 baseMismatch,) = _seedConfigurablePool();
+        (PropertyPMM baseMismatchPool, ConfigurableERC20 baseMismatch,) = _seedConfigurablePool();
         buyQuote = baseMismatchPool.queryBuyBaseToken(ONE);
         baseMismatch.setTransferBehavior(ConfigurableERC20.Behavior.TransferLess);
         vm.prank(trader);
         vm.expectRevert(bytes("BASE_TRANSFER_OUT_MISMATCH"));
         baseMismatchPool.buyBaseToken(ONE, buyQuote);
 
-        (MinimalDodoPMM quoteFalsePool,, ConfigurableERC20 quoteFalse) = _seedConfigurablePool();
+        (PropertyPMM quoteFalsePool,, ConfigurableERC20 quoteFalse) = _seedConfigurablePool();
         uint256 sellQuote = quoteFalsePool.querySellBaseToken(ONE);
         quoteFalse.setTransferBehavior(ConfigurableERC20.Behavior.ReturnFalse);
         vm.prank(trader);
         vm.expectRevert(bytes("QUOTE_TRANSFER_FAILED"));
         quoteFalsePool.sellBaseToken(ONE, sellQuote);
 
-        (MinimalDodoPMM quoteMismatchPool,, ConfigurableERC20 quoteMismatch) = _seedConfigurablePool();
+        (PropertyPMM quoteMismatchPool,, ConfigurableERC20 quoteMismatch) = _seedConfigurablePool();
         sellQuote = quoteMismatchPool.querySellBaseToken(ONE);
         quoteMismatch.setTransferBehavior(ConfigurableERC20.Behavior.TransferLess);
         vm.prank(trader);
         vm.expectRevert(bytes("QUOTE_TRANSFER_OUT_MISMATCH"));
         quoteMismatchPool.sellBaseToken(ONE, sellQuote);
 
-        (MinimalDodoPMM taxPool,, ConfigurableERC20 taxQuote) = _seedConfigurablePool();
+        (PropertyPMM taxPool,, ConfigurableERC20 taxQuote) = _seedConfigurablePool();
         taxPool.setTaxRecipient(taxRecipient);
         taxPool.setBuyTaxRate(1e16);
         taxPool.enableTax();
@@ -438,10 +443,19 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
         vm.expectRevert(bytes("VALUATION_TIMESTAMP_IN_FUTURE"));
         config.validatedValuation();
 
-        config.setValuationValidation(1 hours, 90 * ONE, 110 * ONE);
-        config.setRawValuation(120 * ONE, block.timestamp);
-        vm.expectRevert(bytes("VALUATION_PRICE_OUT_OF_RANGE"));
-        config.validatedValuation();
+        vm.expectRevert(bytes("INVALID_VALUATION_DELTA_BPS"));
+        config.setValuationValidation(1 hours, 10_001);
+
+        vm.expectRevert(bytes("NO_PENDING_VALUATION"));
+        config.acceptPendingValuation();
+
+        config.setValuationValidation(1 hours, 1_000);
+        config.setValuationPrice(120 * ONE);
+        assertTrue(config.valuationCircuitBreakerTripped());
+        assertEq(config.pendingValuationPrice(), 120 * ONE);
+        config.acceptPendingValuation();
+        assertFalse(config.valuationCircuitBreakerTripped());
+        assertEq(config.getValuationPrice(), 120 * ONE);
 
         vm.expectRevert(bytes("INVALID_VALUATION_TIMESTAMP"));
         config.setValuationPriceWithTimestamp(INITIAL_PRICE, 0);
@@ -487,11 +501,12 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
 
     function _freshConfigurablePool()
         internal
-        returns (MinimalDodoPMM freshPool, ConfigurableERC20 freshBase, ConfigurableERC20 freshQuote)
+        returns (PropertyPMM freshPool, ConfigurableERC20 freshBase, ConfigurableERC20 freshQuote)
     {
         freshBase = new ConfigurableERC20("Config Base", "CB");
         freshQuote = new ConfigurableERC20("Config Quote", "CQ");
-        freshPool = new MinimalDodoPMM(
+        freshBase.setKycRegistry(address(kyc));
+        freshPool = new PropertyPMM(
             address(this),
             supervisor,
             maintainer,
@@ -507,7 +522,7 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
     }
 
     function _approveConfigurableLiquidity(
-        MinimalDodoPMM freshPool,
+        PropertyPMM freshPool,
         ConfigurableERC20 freshBase,
         ConfigurableERC20 freshQuote
     ) internal {
@@ -522,7 +537,7 @@ contract MinimalDodoPMMEdgeCasesTest is AMMTestBase {
 
     function _seedConfigurablePool()
         internal
-        returns (MinimalDodoPMM freshPool, ConfigurableERC20 freshBase, ConfigurableERC20 freshQuote)
+        returns (PropertyPMM freshPool, ConfigurableERC20 freshBase, ConfigurableERC20 freshQuote)
     {
         (freshPool, freshBase, freshQuote) = _freshConfigurablePool();
 
@@ -550,6 +565,7 @@ contract TestnetERC20UnitTest is Test {
 
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
+
     function setUp() public {
         token = new TestnetERC20("Testnet Token", "TNT", 18);
     }

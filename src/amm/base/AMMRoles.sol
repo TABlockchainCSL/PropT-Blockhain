@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
+/// @notice Shared owner and supervisor access control for AMM contracts.
 abstract contract AMMRoles {
+    /// @notice Admin address with full configuration permissions.
     address public owner;
+    /// @notice Emergency operator allowed to pause trading paths.
     address public supervisor;
 
     event OwnershipTransferred(address indexed oldOwner, address indexed newOwner);
@@ -25,12 +28,14 @@ abstract contract AMMRoles {
         emit OwnershipTransferred(address(0), owner_);
     }
 
+    /// @notice Transfer ownership to a new non-zero address.
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "INVALID_OWNER");
         emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
     }
 
+    /// @notice Set the supervisor address; use zero address to disable it.
     function setSupervisor(address newSupervisor) external onlyOwner {
         emit SupervisorUpdated(supervisor, newSupervisor);
         supervisor = newSupervisor;

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {RStatus} from "../../src/amm/types/PMMTypes.sol";
-import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {AMMTestBase, MockERC20} from "./helpers/AMMTestBase.sol";
 
 contract MockDividendDistributor {
@@ -33,7 +33,7 @@ contract MockDividendDistributor {
     }
 }
 
-contract MinimalDodoPMMDeploymentConfigTest is AMMTestBase {
+contract PropertyPMMDeploymentConfigTest is AMMTestBase {
     function testConstructorRejectsInvalidPoolConfiguration() public {
         vm.expectRevert(bytes("IDENTICAL_TOKENS"));
         _newPoolWithTokens(address(base), address(base), maintainer);
@@ -45,7 +45,8 @@ contract MinimalDodoPMMDeploymentConfigTest is AMMTestBase {
     function testConstructorSupportsNon18DecimalTokensAndRejectsOver18Decimals() public {
         MockERC20 sixBase = new MockERC20("Six Base", "SIXB", 6);
         MockERC20 sixDecimals = new MockERC20("Six", "SIX", 6);
-        MinimalDodoPMM sixDecimalPool = _newPoolWithTokens(address(sixBase), address(sixDecimals), maintainer);
+        _setTokenKycRegistry(address(sixBase));
+        PropertyPMM sixDecimalPool = _newPoolWithTokens(address(sixBase), address(sixDecimals), maintainer);
 
         assertEq(sixDecimalPool.baseTokenDecimals(), 6);
         assertEq(sixDecimalPool.quoteTokenDecimals(), 6);
@@ -53,12 +54,53 @@ contract MinimalDodoPMMDeploymentConfigTest is AMMTestBase {
         assertEq(sixDecimalPool.quoteTokenScale(), 1e12);
 
         MockERC20 nineteenDecimals = new MockERC20("Nineteen", "NINE", 19);
+        _setTokenKycRegistry(address(nineteenDecimals));
 
         vm.expectRevert(bytes("BASE_DECIMALS_GT_18"));
         _newPoolWithTokens(address(nineteenDecimals), address(quote), maintainer);
 
         vm.expectRevert(bytes("QUOTE_DECIMALS_GT_18"));
         _newPoolWithTokens(address(base), address(nineteenDecimals), maintainer);
+    }
+
+    function testConstructorInfersKycRegistryFromBaseToken() public {
+        assertEq(address(pool.kycRegistry()), address(kyc));
+
+        MockERC20 unconfiguredBase = new MockERC20("No KYC", "NKYC", 18);
+        vm.expectRevert(PropertyPMM.InvalidKYCRegistry.selector);
+        new PropertyPMM(
+            address(this),
+            supervisor,
+            maintainer,
+            address(unconfiguredBase),
+            address(quote),
+            INITIAL_PRICE,
+            DEFAULT_LP_FEE,
+            DEFAULT_MAINTAINER_FEE,
+            DEFAULT_K,
+            "Bad",
+            "BAD"
+        );
+    }
+
+    function testLpTransfersRequireKycOrApprovedContract() public {
+        uint256 transferAmount = pool.balanceOf(lpProvider) / 4;
+
+        vm.prank(lpProvider);
+        vm.expectRevert(abi.encodeWithSelector(PropertyPMM.RecipientNotAuthorized.selector, outsider));
+        pool.transfer(outsider, transferAmount);
+
+        kyc.setApprovedContract(address(stray), true);
+        vm.prank(lpProvider);
+        assertTrue(pool.transfer(address(stray), transferAmount));
+
+        vm.prank(lpProvider);
+        assertTrue(pool.transfer(lpReceiver, transferAmount));
+
+        kyc.setVerified(lpReceiver, false);
+        vm.prank(lpReceiver);
+        vm.expectRevert(abi.encodeWithSelector(PropertyPMM.SenderNotAuthorized.selector, lpReceiver));
+        pool.transfer(lpProvider, transferAmount);
     }
 
     function testInitialPoolStateTracksTargetsAndMidPrice() public {
@@ -115,14 +157,11 @@ contract MinimalDodoPMMDeploymentConfigTest is AMMTestBase {
         vm.expectRevert(bytes("MAINTAINER_NOT_SET"));
         pool.setMaintainerFeeRate(1);
 
-        vm.expectRevert(bytes("INVALID_MIN_VALUATION_PRICE"));
-        pool.setValuationValidation(1 hours, 0, 100 * ONE);
-
-        vm.expectRevert(bytes("INVALID_MAX_VALUATION_PRICE"));
-        pool.setValuationValidation(1 hours, 100 * ONE, 99 * ONE);
+        vm.expectRevert(bytes("INVALID_VALUATION_DELTA_BPS"));
+        pool.setValuationValidation(1 hours, 10_001);
 
         vm.expectRevert(bytes("INVALID_VALUATION_STALENESS"));
-        pool.setValuationValidation(0, 1, 100 * ONE);
+        pool.setValuationValidation(0, 2_000);
     }
 
     function testOnlyNeededAdminSurfaceIsPresent() public {
@@ -136,8 +175,8 @@ contract MinimalDodoPMMDeploymentConfigTest is AMMTestBase {
     }
 }
 
-contract MinimalDodoPMMValuationTest is AMMTestBase {
-    function testValuationRejectsZeroStaleFutureAndOutOfRangePrices() public {
+contract PropertyPMMValuationTest is AMMTestBase {
+    function testValuationRejectsZeroStaleAndFuturePrices() public {
         vm.expectRevert(bytes("INVALID_VALUATION_PRICE"));
         pool.setValuationPrice(0);
 
@@ -148,11 +187,34 @@ contract MinimalDodoPMMValuationTest is AMMTestBase {
 
         vm.expectRevert(bytes("VALUATION_TIMESTAMP_IN_FUTURE"));
         pool.setValuationPriceWithTimestamp(INITIAL_PRICE, block.timestamp + 1);
+    }
+
+    function testValuationCircuitBreakerPausesTradingUntilPendingAccepted() public {
+        pool.setValuationValidation(1 hours, 1_000);
 
         pool.setValuationPrice(INITIAL_PRICE);
-        pool.setValuationValidation(1 hours, 90 * ONE, 110 * ONE);
-        vm.expectRevert(bytes("VALUATION_PRICE_OUT_OF_RANGE"));
-        pool.setValuationPrice(120 * ONE);
+        pool.setValuationPrice(112 * ONE);
+
+        assertTrue(pool.valuationCircuitBreakerTripped());
+        assertEq(pool.pendingValuationPrice(), 112 * ONE);
+        assertEq(pool.pendingValuationUpdatedAt(), block.timestamp);
+        assertEq(pool.getValuationPrice(), INITIAL_PRICE);
+        assertFalse(pool.tradingEnabled());
+
+        vm.expectRevert(bytes("VALUATION_CIRCUIT_BREAKER_ACTIVE"));
+        pool.setValuationPrice(105 * ONE);
+
+        vm.expectRevert(bytes("VALUATION_CIRCUIT_BREAKER_ACTIVE"));
+        pool.enableTrading();
+
+        pool.acceptPendingValuation();
+        assertFalse(pool.valuationCircuitBreakerTripped());
+        assertEq(pool.pendingValuationPrice(), 0);
+        assertEq(pool.pendingValuationUpdatedAt(), 0);
+        assertEq(pool.getValuationPrice(), 112 * ONE);
+
+        pool.enableTrading();
+        assertTrue(pool.tradingEnabled());
     }
 
     function testValuationExpiryBoundary() public {
@@ -223,7 +285,7 @@ contract MinimalDodoPMMValuationTest is AMMTestBase {
     }
 }
 
-contract MinimalDodoPMMLiquidityTest is AMMTestBase {
+contract PropertyPMMLiquidityTest is AMMTestBase {
     struct LiquiditySnapshot {
         uint256 supply;
         uint256 baseBalance;
@@ -324,7 +386,8 @@ contract MinimalDodoPMMLiquidityTest is AMMTestBase {
     function testSecondLiquidityUsesFullPrecisionMathWhenIntermediateProductWouldOverflow() public {
         MockERC20 hugeBase = new MockERC20("Huge Base", "HBASE", 18);
         MockERC20 hugeQuote = new MockERC20("Huge Quote", "HQUOTE", 18);
-        MinimalDodoPMM hugePool = _newPoolWithTokens(address(hugeBase), address(hugeQuote), maintainer);
+        _setTokenKycRegistry(address(hugeBase));
+        PropertyPMM hugePool = _newPoolWithTokens(address(hugeBase), address(hugeQuote), maintainer);
 
         uint256 initialBase = uint256(1) << 64;
         uint256 initialQuote = uint256(1) << 191;
@@ -360,7 +423,8 @@ contract MinimalDodoPMMLiquidityTest is AMMTestBase {
     function testSixDecimalPoolUsesNativeTokenAmountsAndWadAccounting() public {
         MockERC20 sixBase = new MockERC20("Six Base", "SIXB", 6);
         MockERC20 sixQuote = new MockERC20("Six Quote", "SIXQ", 6);
-        MinimalDodoPMM sixPool = _newPoolWithTokens(address(sixBase), address(sixQuote), maintainer);
+        _setTokenKycRegistry(address(sixBase));
+        PropertyPMM sixPool = _newPoolWithTokens(address(sixBase), address(sixQuote), maintainer);
 
         uint256 nativeBaseLiquidity = 10e6;
         uint256 nativeQuoteLiquidity = 1000e6;
@@ -470,7 +534,7 @@ contract MinimalDodoPMMLiquidityTest is AMMTestBase {
     }
 }
 
-contract MinimalDodoPMMTradingTaxTest is AMMTestBase {
+contract PropertyPMMTradingTaxTest is AMMTestBase {
     function testTradesRejectZeroAmountWithoutChangingState() public {
         vm.prank(trader);
         vm.expectRevert(bytes("ZERO_AMOUNT"));
@@ -579,7 +643,7 @@ contract MinimalDodoPMMTradingTaxTest is AMMTestBase {
     }
 }
 
-contract MinimalDodoPMMControlsTest is AMMTestBase {
+contract PropertyPMMControlsTest is AMMTestBase {
     function testEnableTaxRequiresRecipient() public {
         vm.expectRevert(bytes("TAX_RECIPIENT_NOT_SET"));
         pool.enableTax();
@@ -632,8 +696,8 @@ contract MinimalDodoPMMControlsTest is AMMTestBase {
     }
 }
 
-contract MinimalDodoPMMDividendTest is AMMTestBase {
-    function testClaimQuoteDividendsAddsClaimedQuoteAsSurplusReserve() public {
+contract PropertyPMMDividendTest is AMMTestBase {
+    function testClaimQuoteDividendsAccountsClaimedQuoteToLPs() public {
         MockDividendDistributor dividend = new MockDividendDistributor(quote);
         quote.mint(address(dividend), 25 * ONE);
         dividend.setClaimAmount(25 * ONE);
@@ -643,16 +707,27 @@ contract MinimalDodoPMMDividendTest is AMMTestBase {
         uint256 targetQuoteBefore = pool.targetQuoteTokenAmount();
         uint256 midPriceBefore = pool.getMidPrice();
         uint256 sellQuoteBefore = pool.querySellBaseToken(ONE);
+        uint256 lpQuoteBefore = quote.balanceOf(lpProvider);
 
         uint256 claimed = pool.claimQuoteDividends(address(dividend), type(uint256).max);
 
         assertEq(claimed, 25 * ONE);
         assertEq(quote.balanceOf(address(pool)) - actualQuoteBefore, 25 * ONE);
-        assertEq(pool.quoteBalance(), quoteBalanceBefore + 25 * ONE);
+        assertEq(pool.quoteBalance(), quoteBalanceBefore);
         assertEq(pool.targetQuoteTokenAmount(), targetQuoteBefore);
-        assertEq(uint256(pool.rStatus()), uint256(RStatus.ABOVE_ONE));
-        assertGt(pool.getMidPrice(), midPriceBefore);
-        assertGt(pool.querySellBaseToken(ONE), sellQuoteBefore);
+        assertEq(uint256(pool.rStatus()), uint256(RStatus.ONE));
+        assertEq(pool.getMidPrice(), midPriceBefore);
+        assertEq(pool.querySellBaseToken(ONE), sellQuoteBefore);
+        assertEq(pool.pendingLpQuoteDividends(lpProvider), 25 * ONE);
+        assertEq(pool.totalPendingLpQuoteDividends(), 25 * ONE);
+
+        vm.prank(lpProvider);
+        uint256 lpClaimed = pool.claimLpQuoteDividends();
+
+        assertEq(lpClaimed, 25 * ONE);
+        assertEq(quote.balanceOf(lpProvider) - lpQuoteBefore, 25 * ONE);
+        assertEq(pool.pendingLpQuoteDividends(lpProvider), 0);
+        assertEq(pool.totalPendingLpQuoteDividends(), 0);
         _assertTrackedBalancesAtMostActual();
     }
 
@@ -665,6 +740,8 @@ contract MinimalDodoPMMDividendTest is AMMTestBase {
         assertEq(uint256(pool.rStatus()), uint256(RStatus.ABOVE_ONE));
         uint256 targetBaseBefore = pool.targetBaseTokenAmount();
         uint256 targetQuoteBefore = pool.targetQuoteTokenAmount();
+        uint256 quoteBalanceBefore = pool.quoteBalance();
+        uint256 midPriceBefore = pool.getMidPrice();
 
         MockDividendDistributor dividend = new MockDividendDistributor(quote);
         quote.mint(address(dividend), 5 * ONE);
@@ -675,7 +752,64 @@ contract MinimalDodoPMMDividendTest is AMMTestBase {
         assertEq(uint256(pool.rStatus()), uint256(RStatus.ABOVE_ONE));
         assertEq(pool.targetBaseTokenAmount(), targetBaseBefore);
         assertEq(pool.targetQuoteTokenAmount(), targetQuoteBefore);
+        assertEq(pool.quoteBalance(), quoteBalanceBefore);
+        assertEq(pool.getMidPrice(), midPriceBefore);
+        assertEq(pool.pendingLpQuoteDividends(lpProvider), 5 * ONE);
         _assertTrackedBalancesAtMostActual();
+    }
+
+    function testLpDividendAccountingFollowsSharesAndTransfers() public {
+        _mintAndApprove(secondProvider, 5 * ONE, 500 * ONE);
+
+        vm.prank(secondProvider);
+        pool.provideLiquidity(5 * ONE, 500 * ONE, 0);
+
+        MockDividendDistributor dividend = new MockDividendDistributor(quote);
+        quote.mint(address(dividend), 45 * ONE);
+        dividend.setClaimAmount(30 * ONE);
+
+        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+
+        assertEq(pool.pendingLpQuoteDividends(lpProvider), 20 * ONE);
+        assertEq(pool.pendingLpQuoteDividends(secondProvider), 10 * ONE);
+
+        uint256 transferredShares = pool.balanceOf(secondProvider);
+        vm.prank(secondProvider);
+        pool.transfer(lpReceiver, transferredShares);
+
+        assertEq(pool.pendingLpQuoteDividends(secondProvider), 10 * ONE);
+        assertEq(pool.pendingLpQuoteDividends(lpReceiver), 0);
+
+        dividend.setClaimAmount(15 * ONE);
+        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+
+        assertEq(pool.pendingLpQuoteDividends(lpProvider), 30 * ONE);
+        assertEq(pool.pendingLpQuoteDividends(secondProvider), 10 * ONE);
+        assertEq(pool.pendingLpQuoteDividends(lpReceiver), 5 * ONE);
+        assertEq(pool.totalPendingLpQuoteDividends(), 45 * ONE);
+    }
+
+    function testWithdrawLiquidityDoesNotErasePendingLpDividends() public {
+        MockDividendDistributor dividend = new MockDividendDistributor(quote);
+        quote.mint(address(dividend), 25 * ONE);
+        dividend.setClaimAmount(25 * ONE);
+
+        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+
+        uint256 shares = pool.balanceOf(lpProvider);
+        vm.prank(lpProvider);
+        pool.withdrawLiquidity(shares, 0, 0);
+
+        assertEq(pool.balanceOf(lpProvider), 0);
+        assertEq(pool.pendingLpQuoteDividends(lpProvider), 25 * ONE);
+
+        uint256 lpQuoteBefore = quote.balanceOf(lpProvider);
+        vm.prank(lpProvider);
+        uint256 claimed = pool.claimLpQuoteDividends();
+
+        assertEq(claimed, 25 * ONE);
+        assertEq(quote.balanceOf(lpProvider) - lpQuoteBefore, 25 * ONE);
+        assertEq(pool.pendingLpQuoteDividends(lpProvider), 0);
     }
 
     function testPendingQuoteDividendsReadsPoolPendingAmount() public {
@@ -705,5 +839,57 @@ contract MinimalDodoPMMDividendTest is AMMTestBase {
 
         vm.expectRevert(bytes("NO_DIVIDEND_CLAIMED"));
         pool.claimQuoteDividends(address(dividend), type(uint256).max);
+    }
+
+    function testClaimLpQuoteDividendsChecksPendingAndRecoverProtection() public {
+        MockDividendDistributor dividend = new MockDividendDistributor(quote);
+        quote.mint(address(dividend), 25 * ONE);
+        dividend.setClaimAmount(25 * ONE);
+
+        vm.prank(lpProvider);
+        vm.expectRevert(bytes("NO_LP_DIVIDEND"));
+        pool.claimLpQuoteDividends();
+
+        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+
+        vm.expectRevert(bytes("QUOTE_BALANCE_NOT_ENOUGH"));
+        pool.recoverToken(address(quote), address(this), 1);
+
+        quote.mint(address(pool), ONE);
+        uint256 ownerQuoteBefore = quote.balanceOf(address(this));
+        pool.recoverToken(address(quote), address(this), ONE);
+        assertEq(quote.balanceOf(address(this)) - ownerQuoteBefore, ONE);
+        assertEq(pool.pendingLpQuoteDividends(lpProvider), 25 * ONE);
+    }
+
+    function testClaimLpQuoteDividendsRequiresAuthorizedLp() public {
+        kyc.setVerified(outsider, true);
+        kyc.setApprovedContract(address(stray), true);
+        uint256 transferAmount = pool.balanceOf(lpProvider) / 4;
+
+        vm.prank(lpProvider);
+        pool.transfer(outsider, transferAmount);
+
+        vm.prank(lpProvider);
+        pool.transfer(address(stray), transferAmount);
+
+        kyc.setVerified(outsider, false);
+
+        MockDividendDistributor dividend = new MockDividendDistributor(quote);
+        quote.mint(address(dividend), 40 * ONE);
+        dividend.setClaimAmount(40 * ONE);
+
+        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+        assertEq(pool.pendingLpQuoteDividends(outsider), 10 * ONE);
+        assertEq(pool.pendingLpQuoteDividends(address(stray)), 10 * ONE);
+
+        vm.prank(outsider);
+        vm.expectRevert(abi.encodeWithSelector(PropertyPMM.SenderNotAuthorized.selector, outsider));
+        pool.claimLpQuoteDividends();
+
+        uint256 quoteBefore = quote.balanceOf(address(stray));
+        vm.prank(address(stray));
+        assertEq(pool.claimLpQuoteDividends(), 10 * ONE);
+        assertEq(quote.balanceOf(address(stray)) - quoteBefore, 10 * ONE);
     }
 }

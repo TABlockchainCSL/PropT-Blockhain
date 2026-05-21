@@ -2,12 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {console2} from "forge-std/console2.sol";
-import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {AMMScriptBase} from "./AMMScriptBase.s.sol";
 
 contract ConfigureTaxScript is AMMScriptBase {
     function run() external {
-        MinimalDodoPMM pool = _pool();
+        PropertyPMM pool = _pool();
         uint256 privateKey = _privateKey();
         address taxRecipient = vm.envAddress("TAX_RECIPIENT");
         uint256 buyTaxRate = vm.envOr("BUY_TAX_RATE", uint256(0));

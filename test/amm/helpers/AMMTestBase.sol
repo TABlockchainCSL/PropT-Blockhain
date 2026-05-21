@@ -2,14 +2,28 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {MinimalDodoPMM} from "../../../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../../../src/amm/PropertyPMM.sol";
 import {RStatus} from "../../../src/amm/types/PMMTypes.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+contract MockKYCRegistry {
+    mapping(address => bool) public isVerified;
+    mapping(address => bool) public isApprovedContract;
+
+    function setVerified(address user, bool status) external {
+        isVerified[user] = status;
+    }
+
+    function setApprovedContract(address account, bool status) external {
+        isApprovedContract[account] = status;
+    }
+}
 
 contract MockERC20 is IERC20Metadata {
     string public name;
     string public symbol;
     uint8 public immutable DECIMALS;
+    address public kycRegistry;
 
     uint256 public totalSupply;
     mapping(address => uint256) public balanceOf;
@@ -19,6 +33,10 @@ contract MockERC20 is IERC20Metadata {
         name = name_;
         symbol = symbol_;
         DECIMALS = decimals_;
+    }
+
+    function setKycRegistry(address newKycRegistry) external {
+        kycRegistry = newKycRegistry;
     }
 
     function decimals() external view returns (uint8) {
@@ -64,7 +82,8 @@ abstract contract AMMTestBase is Test {
     MockERC20 internal base;
     MockERC20 internal quote;
     MockERC20 internal stray;
-    MinimalDodoPMM internal pool;
+    MockKYCRegistry internal kyc;
+    PropertyPMM internal pool;
 
     address internal lpProvider = address(0x1000);
     address internal supervisor = address(0x1001);
@@ -83,11 +102,15 @@ abstract contract AMMTestBase is Test {
     }
 
     function _deployDefaultPool() internal {
+        kyc = new MockKYCRegistry();
+        _seedKycUsers();
+
         base = new MockERC20("Base", "BASE", 18);
         quote = new MockERC20("Quote", "QUOTE", 18);
         stray = new MockERC20("Stray", "STRAY", 18);
+        base.setKycRegistry(address(kyc));
 
-        pool = new MinimalDodoPMM(
+        pool = new PropertyPMM(
             address(this),
             supervisor,
             maintainer,
@@ -122,9 +145,9 @@ abstract contract AMMTestBase is Test {
 
     function _newPoolWithTokens(address baseToken_, address quoteToken_, address maintainer_)
         internal
-        returns (MinimalDodoPMM)
+        returns (PropertyPMM)
     {
-        return new MinimalDodoPMM(
+        return new PropertyPMM(
             address(this),
             supervisor,
             maintainer_,
@@ -137,6 +160,22 @@ abstract contract AMMTestBase is Test {
             "Bad",
             "BAD"
         );
+    }
+
+    function _seedKycUsers() internal {
+        kyc.setVerified(lpProvider, true);
+        kyc.setVerified(lpReceiver, true);
+        kyc.setVerified(secondProvider, true);
+        kyc.setVerified(thirdProvider, true);
+        kyc.setVerified(trader, true);
+        kyc.setVerified(taxRecipient, true);
+        kyc.setVerified(maintainer, true);
+        kyc.setVerified(address(this), true);
+    }
+
+    function _setTokenKycRegistry(address token) internal {
+        (bool ok,) = token.call(abi.encodeWithSignature("setKycRegistry(address)", address(kyc)));
+        ok;
     }
 
     function _assertTrackedBalancesAtMostActual() internal {

@@ -5,9 +5,11 @@ import {PMMMath} from "./PMMMath.sol";
 import {BuyQuote, PoolState, PricingState, RStatus, SellQuote, TargetState} from "../types/PMMTypes.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
+/// @notice Pure quote engine for the PMM pool.
 library PMMQuoter {
     uint256 private constant WAD = 1e18;
 
+    /// @notice Return the target reserves implied by the current PMM state.
     function expectedTarget(PoolState memory pool, PricingState memory pricing)
         internal
         pure
@@ -27,6 +29,7 @@ library PMMQuoter {
         target.quoteTarget = pool.targetQuoteTokenAmount;
     }
 
+    /// @notice Return the PMM marginal price for the current state.
     function midPrice(PoolState memory pool, PricingState memory pricing) internal pure returns (uint256) {
         TargetState memory target = expectedTarget(pool, pricing);
         if (pool.rStatus == RStatus.BELOW_ONE) {
@@ -43,6 +46,7 @@ library PMMQuoter {
         return FixedPointMathLib.mulWad(pricing.price, aboveRatio);
     }
 
+    /// @notice Quote a base-token sell and its resulting PMM state.
     function querySellBaseToken(PoolState memory pool, PricingState memory pricing, uint256 amount)
         internal
         pure
@@ -68,6 +72,7 @@ library PMMQuoter {
         quote.receiveQuote = quote.receiveQuote - quote.lpFeeQuote - quote.maintainerFeeQuote - quote.sellTaxQuote;
     }
 
+    /// @notice Quote a base-token buy and its resulting PMM state.
     function queryBuyBaseToken(PoolState memory pool, PricingState memory pricing, uint256 amount)
         internal
         pure

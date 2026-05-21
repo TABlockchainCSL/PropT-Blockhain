@@ -2,12 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {console2} from "forge-std/console2.sol";
-import {MinimalDodoPMM} from "../../src/amm/MinimalDodoPMM.sol";
+import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {AMMScriptBase} from "./AMMScriptBase.s.sol";
 
 contract EnableTradingScript is AMMScriptBase {
     function run() external {
-        MinimalDodoPMM pool = _pool();
+        PropertyPMM pool = _pool();
         uint256 privateKey = _privateKey();
 
         vm.startBroadcast(privateKey);
