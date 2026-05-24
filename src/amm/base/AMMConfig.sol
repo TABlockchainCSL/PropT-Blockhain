@@ -15,9 +15,6 @@ abstract contract AMMConfig is AMMRoles {
     uint256 public constant DEFAULT_VALUATION_MAX_STALENESS = 180 days;
     /// @notice Default max valuation move before trading is paused, in bps.
     uint256 public constant DEFAULT_MAX_VALUATION_DELTA_BPS = 2_000;
-    /// @notice Default upper bound for age-adjusted K.
-    uint256 public constant DEFAULT_MAX_K = 7e17;
-
     /// @notice Address receiving maintainer fees.
     address public maintainer;
     /// @notice Address receiving buy and sell taxes.
@@ -34,12 +31,8 @@ abstract contract AMMConfig is AMMRoles {
     uint256 public buyTaxRate;
     /// @notice Sell-side tax rate, scaled by 1e18.
     uint256 public sellTaxRate;
-    /// @notice Base PMM slippage parameter, scaled by 1e18.
+    /// @notice Fixed PMM slippage parameter, scaled by 1e18.
     uint256 public k;
-    /// @notice Maximum K after valuation age adjustment.
-    uint256 public maxK;
-    /// @notice Per-second K increase while valuation data ages.
-    uint256 public kGrowthPerSecond;
     /// @notice Active guide valuation price, scaled by 1e18.
     uint256 public valuationPrice;
     /// @notice Timestamp for the active valuation price.
@@ -70,8 +63,6 @@ abstract contract AMMConfig is AMMRoles {
     event SellTaxRateUpdated(uint256 oldRate, uint256 newRate);
     event LpFeeRateUpdated(uint256 oldRate, uint256 newRate);
     event MaintainerFeeRateUpdated(uint256 oldRate, uint256 newRate);
-    event KUpdated(uint256 oldK, uint256 newK);
-    event AgeAdjustedKUpdated(uint256 oldMaxK, uint256 newMaxK, uint256 oldGrowth, uint256 newGrowth);
 
     constructor(
         address owner_,
@@ -94,8 +85,6 @@ abstract contract AMMConfig is AMMRoles {
         lpFeeRate = lpFeeRate_;
         maintainerFeeRate = maintainerFeeRate_;
         k = k_;
-        maxK = k_ > DEFAULT_MAX_K ? k_ : DEFAULT_MAX_K;
-        kGrowthPerSecond = FixedPointMathLib.divUp(maxK - k_, DEFAULT_VALUATION_MAX_STALENESS);
         valuationMaxStaleness = DEFAULT_VALUATION_MAX_STALENESS;
         maxValuationDeltaBps = DEFAULT_MAX_VALUATION_DELTA_BPS;
     }
@@ -183,24 +172,6 @@ abstract contract AMMConfig is AMMRoles {
         taxRecipient = newTaxRecipient;
     }
 
-    /// @notice Set the base PMM K parameter.
-    function setK(uint256 newK) external onlyOwner {
-        require(newK > 0, "K=0");
-        require(newK < WAD, "K>=1");
-        require(maxK >= newK, "MAX_K<K");
-        emit KUpdated(k, newK);
-        k = newK;
-    }
-
-    /// @notice Set the age-adjusted K cap and growth rate.
-    function setAgeAdjustedK(uint256 newMaxK, uint256 newGrowthPerSecond) external onlyOwner {
-        require(newMaxK >= k, "MAX_K<K");
-        require(newMaxK < WAD, "MAX_K>=1");
-        emit AgeAdjustedKUpdated(maxK, newMaxK, kGrowthPerSecond, newGrowthPerSecond);
-        maxK = newMaxK;
-        kGrowthPerSecond = newGrowthPerSecond;
-    }
-
     /// @notice Enable buy and sell tax collection.
     function enableTax() external onlyOwner {
         require(taxRecipient != address(0), "TAX_RECIPIENT_NOT_SET");
@@ -220,16 +191,14 @@ abstract contract AMMConfig is AMMRoles {
         return price;
     }
 
-    /// @notice Return the current K after valuation age adjustment.
+    /// @notice Return the fixed PMM K parameter.
     function getEffectiveK() external view returns (uint256) {
-        (, uint256 updatedAt) = _getValidatedValuation();
-        return _getEffectiveK(updatedAt);
+        return k;
     }
 
     function _getPricingState() internal view returns (PricingState memory pricing) {
-        uint256 updatedAt;
-        (pricing.price, updatedAt) = _getValidatedValuation();
-        pricing.effectiveK = _getEffectiveK(updatedAt);
+        (pricing.price,) = _getValidatedValuation();
+        pricing.effectiveK = k;
     }
 
     /// @dev Reverts when the active valuation is invalid or stale.
@@ -265,20 +234,6 @@ abstract contract AMMConfig is AMMRoles {
         emit ValuationUpdated(oldPrice, newPrice, oldUpdatedAt, newUpdatedAt);
         valuationPrice = newPrice;
         valuationUpdatedAt = newUpdatedAt;
-    }
-
-    function _getEffectiveK(uint256 updatedAt) internal view returns (uint256) {
-        uint256 kRoom = maxK - k;
-        if (kGrowthPerSecond == 0 || kRoom == 0) {
-            return k;
-        }
-
-        uint256 age = block.timestamp - updatedAt;
-        if (age >= FixedPointMathLib.divUp(kRoom, kGrowthPerSecond)) {
-            return maxK;
-        }
-
-        return k + (age * kGrowthPerSecond);
     }
 
     /// @dev Hook for child pools to pause trading when valuation review is needed.

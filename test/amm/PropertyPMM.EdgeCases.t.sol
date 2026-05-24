@@ -8,7 +8,7 @@ import {AMMRoles} from "../../src/amm/base/AMMRoles.sol";
 import {TestnetERC20} from "../../src/amm/testnet/TestnetERC20.sol";
 import {PMMQuoter} from "../../src/amm/libraries/PMMQuoter.sol";
 import {BuyQuote, PoolState, PricingState, RStatus, SellQuote} from "../../src/amm/types/PMMTypes.sol";
-import {AMMTestBase} from "./helpers/AMMTestBase.sol";
+import {AMMTestBase, MockDividendDistributor} from "./helpers/AMMTestBase.sol";
 
 // Harnesses used only to exercise internal/library and failure-only branches.
 contract AMMConfigHarness is AMMConfig {
@@ -160,8 +160,7 @@ contract PropertyPMMEdgeCasesTest is AMMTestBase {
             DEFAULT_LP_FEE,
             DEFAULT_MAINTAINER_FEE,
             DEFAULT_K,
-            "Bad",
-            "BAD"
+            address(dividendDistributor)
         );
 
         vm.expectRevert(bytes("INVALID_BASE_TOKEN"));
@@ -175,8 +174,7 @@ contract PropertyPMMEdgeCasesTest is AMMTestBase {
             DEFAULT_LP_FEE,
             DEFAULT_MAINTAINER_FEE,
             DEFAULT_K,
-            "Bad",
-            "BAD"
+            address(dividendDistributor)
         );
 
         vm.expectRevert(bytes("INVALID_QUOTE_TOKEN"));
@@ -190,8 +188,7 @@ contract PropertyPMMEdgeCasesTest is AMMTestBase {
             DEFAULT_LP_FEE,
             DEFAULT_MAINTAINER_FEE,
             DEFAULT_K,
-            "Bad",
-            "BAD"
+            address(dividendDistributor)
         );
 
         vm.expectRevert(bytes("INVALID_OWNER"));
@@ -323,9 +320,6 @@ contract PropertyPMMEdgeCasesTest is AMMTestBase {
         pool.recoverToken(address(quote), address(this), ONE);
         assertEq(quote.balanceOf(address(this)) - quoteBefore, ONE);
 
-        vm.expectRevert(bytes("INVALID_DIVIDEND_DISTRIBUTOR"));
-        pool.pendingQuoteDividends(address(0), 1);
-
         _mintAndApprove(secondProvider, 5 * ONE, 500 * ONE);
         vm.prank(secondProvider);
         vm.expectRevert(bytes("INSUFFICIENT_SHARES"));
@@ -416,7 +410,7 @@ contract PropertyPMMEdgeCasesTest is AMMTestBase {
         taxPool.setBuyTaxRate(1e16);
         taxPool.enableTax();
         buyQuote = taxPool.queryBuyBaseToken(ONE);
-        taxQuote.setFailTransferFromTo(taxRecipient);
+        taxQuote.setFailTransferFromTo(address(taxPool));
         vm.prank(trader);
         vm.expectRevert(bytes("QUOTE_TRANSFER_FROM_FAILED"));
         taxPool.buyBaseToken(ONE, buyQuote);
@@ -506,6 +500,8 @@ contract PropertyPMMEdgeCasesTest is AMMTestBase {
         freshBase = new ConfigurableERC20("Config Base", "CB");
         freshQuote = new ConfigurableERC20("Config Quote", "CQ");
         freshBase.setKycRegistry(address(kyc));
+        MockDividendDistributor freshDividendDistributor =
+            new MockDividendDistributor(address(freshBase), address(freshQuote));
         freshPool = new PropertyPMM(
             address(this),
             supervisor,
@@ -516,8 +512,7 @@ contract PropertyPMMEdgeCasesTest is AMMTestBase {
             DEFAULT_LP_FEE,
             DEFAULT_MAINTAINER_FEE,
             DEFAULT_K,
-            "Config LP",
-            "CLP"
+            address(freshDividendDistributor)
         );
     }
 

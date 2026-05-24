@@ -12,8 +12,6 @@ contract DeployPropertyPMMScript is Script {
     uint256 internal constant DEFAULT_K = 1e17;
     uint256 internal constant DEFAULT_INITIAL_VALUATION_PRICE = 100e18;
     uint256 internal constant DEFAULT_QUOTE_MINT_AMOUNT = 1_000_000e18;
-    string internal constant DEFAULT_SHARE_NAME = "PropT AMM LP";
-    string internal constant DEFAULT_SHARE_SYMBOL = "PAMM-LP";
     string internal constant DEFAULT_QUOTE_NAME = "USD";
     string internal constant DEFAULT_QUOTE_SYMBOL = "USD";
 
@@ -23,6 +21,7 @@ contract DeployPropertyPMMScript is Script {
 
         address baseToken = vm.envAddress("BASE_TOKEN");
         address quoteToken = vm.envOr("QUOTE_TOKEN", address(0));
+        address dividendDistributor = vm.envAddress("DIVIDEND_DISTRIBUTOR");
         uint256 quoteMintAmount = vm.envOr("QUOTE_MINT_AMOUNT", DEFAULT_QUOTE_MINT_AMOUNT);
         uint256 initialValuationPrice = vm.envOr("INITIAL_VALUATION_PRICE", DEFAULT_INITIAL_VALUATION_PRICE);
 
@@ -44,8 +43,7 @@ contract DeployPropertyPMMScript is Script {
             LP_FEE_RATE,
             MAINTAINER_FEE_RATE,
             DEFAULT_K,
-            DEFAULT_SHARE_NAME,
-            DEFAULT_SHARE_SYMBOL
+            dividendDistributor
         );
 
         vm.stopBroadcast();
@@ -56,12 +54,11 @@ contract DeployPropertyPMMScript is Script {
         console2.log("maintainer:", address(0));
         console2.log("baseToken:", baseToken);
         console2.log("quoteToken:", quoteToken);
+        console2.log("dividendDistributor:", dividendDistributor);
         console2.log("quoteMintAmount:", quoteMintAmount);
         console2.log("initialValuationPrice:", initialValuationPrice);
         console2.log("lpFeeRate:", LP_FEE_RATE);
         console2.log("maintainerFeeRate:", MAINTAINER_FEE_RATE);
         console2.log("k:", DEFAULT_K);
-        console2.log("maxK:", pool.maxK());
-        console2.log("kGrowthPerSecond:", pool.kGrowthPerSecond());
     }
 }

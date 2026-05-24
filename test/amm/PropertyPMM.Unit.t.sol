@@ -3,43 +3,23 @@ pragma solidity ^0.8.24;
 
 import {RStatus} from "../../src/amm/types/PMMTypes.sol";
 import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
-import {AMMTestBase, MockERC20} from "./helpers/AMMTestBase.sol";
-
-contract MockDividendDistributor {
-    MockERC20 public immutable stablecoin;
-    uint256 public claimAmount;
-    uint256 public pendingAmount;
-
-    constructor(MockERC20 stablecoin_) {
-        stablecoin = stablecoin_;
-    }
-
-    function setClaimAmount(uint256 amount) external {
-        claimAmount = amount;
-    }
-
-    function setPendingAmount(uint256 amount) external {
-        pendingAmount = amount;
-    }
-
-    function claimDividends(uint256) external {
-        uint256 amount = claimAmount;
-        claimAmount = 0;
-        stablecoin.transfer(msg.sender, amount);
-    }
-
-    function pendingDividends(address, uint256) external view returns (uint256) {
-        return pendingAmount;
-    }
-}
+import {DividendDistribution} from "../../src/dividend/DividendDistribution.sol";
+import {KYCRegistry} from "../../src/core/KYCRegistry.sol";
+import {PropertyToken} from "../../src/core/PropertyToken.sol";
+import {AMMTestBase, MockERC20, MockDividendDistributor} from "./helpers/AMMTestBase.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
+import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 
 contract PropertyPMMDeploymentConfigTest is AMMTestBase {
     function testConstructorRejectsInvalidPoolConfiguration() public {
+        MockDividendDistributor identicalDividend = new MockDividendDistributor(address(base), address(base));
         vm.expectRevert(bytes("IDENTICAL_TOKENS"));
-        _newPoolWithTokens(address(base), address(base), maintainer);
+        _newPoolWithTokensAndDistributor(address(base), address(base), maintainer, address(identicalDividend));
 
+        MockDividendDistributor zeroMaintainerDividend = new MockDividendDistributor(address(base), address(quote));
         vm.expectRevert(bytes("MAINTAINER_NOT_SET"));
-        _newPoolWithTokens(address(base), address(quote), address(0));
+        _newPoolWithTokensAndDistributor(address(base), address(quote), address(0), address(zeroMaintainerDividend));
     }
 
     function testConstructorSupportsNon18DecimalTokensAndRejectsOver18Decimals() public {
@@ -56,11 +36,17 @@ contract PropertyPMMDeploymentConfigTest is AMMTestBase {
         MockERC20 nineteenDecimals = new MockERC20("Nineteen", "NINE", 19);
         _setTokenKycRegistry(address(nineteenDecimals));
 
+        MockDividendDistributor badBaseDividend = new MockDividendDistributor(address(nineteenDecimals), address(quote));
         vm.expectRevert(bytes("BASE_DECIMALS_GT_18"));
-        _newPoolWithTokens(address(nineteenDecimals), address(quote), maintainer);
+        _newPoolWithTokensAndDistributor(
+            address(nineteenDecimals), address(quote), maintainer, address(badBaseDividend)
+        );
 
+        MockDividendDistributor badQuoteDividend = new MockDividendDistributor(address(base), address(nineteenDecimals));
         vm.expectRevert(bytes("QUOTE_DECIMALS_GT_18"));
-        _newPoolWithTokens(address(base), address(nineteenDecimals), maintainer);
+        _newPoolWithTokensAndDistributor(
+            address(base), address(nineteenDecimals), maintainer, address(badQuoteDividend)
+        );
     }
 
     function testConstructorInfersKycRegistryFromBaseToken() public {
@@ -78,8 +64,55 @@ contract PropertyPMMDeploymentConfigTest is AMMTestBase {
             DEFAULT_LP_FEE,
             DEFAULT_MAINTAINER_FEE,
             DEFAULT_K,
-            "Bad",
-            "BAD"
+            address(dividendDistributor)
+        );
+    }
+
+    function testConstructorStoresAndValidatesFixedDividendDistributor() public {
+        assertEq(address(pool.dividendDistributor()), address(dividendDistributor));
+
+        vm.expectRevert(bytes("INVALID_DIVIDEND_DISTRIBUTOR"));
+        new PropertyPMM(
+            address(this),
+            supervisor,
+            maintainer,
+            address(base),
+            address(quote),
+            INITIAL_PRICE,
+            DEFAULT_LP_FEE,
+            DEFAULT_MAINTAINER_FEE,
+            DEFAULT_K,
+            address(0)
+        );
+
+        MockDividendDistributor wrongBase = new MockDividendDistributor(address(stray), address(quote));
+        vm.expectRevert(bytes("DIVIDEND_TOKEN_NOT_BASE"));
+        new PropertyPMM(
+            address(this),
+            supervisor,
+            maintainer,
+            address(base),
+            address(quote),
+            INITIAL_PRICE,
+            DEFAULT_LP_FEE,
+            DEFAULT_MAINTAINER_FEE,
+            DEFAULT_K,
+            address(wrongBase)
+        );
+
+        MockDividendDistributor wrongQuote = new MockDividendDistributor(address(base), address(stray));
+        vm.expectRevert(bytes("DIVIDEND_TOKEN_NOT_QUOTE"));
+        new PropertyPMM(
+            address(this),
+            supervisor,
+            maintainer,
+            address(base),
+            address(quote),
+            INITIAL_PRICE,
+            DEFAULT_LP_FEE,
+            DEFAULT_MAINTAINER_FEE,
+            DEFAULT_K,
+            address(wrongQuote)
         );
     }
 
@@ -122,28 +155,8 @@ contract PropertyPMMDeploymentConfigTest is AMMTestBase {
 
     function testAccessControlAndParameterGuards() public {
         vm.prank(outsider);
-        vm.expectRevert(bytes("NOT_OWNER"));
-        pool.setK(2e17);
-
-        vm.prank(outsider);
-        vm.expectRevert(bytes("NOT_OWNER"));
-        pool.setAgeAdjustedK(7e17, 0);
-
-        vm.prank(outsider);
         vm.expectRevert(bytes("NOT_SUPERVISOR_OR_OWNER"));
         pool.disableTrading();
-
-        vm.expectRevert(bytes("K=0"));
-        pool.setK(0);
-
-        vm.expectRevert(bytes("K>=1"));
-        pool.setK(ONE);
-
-        vm.expectRevert(bytes("MAX_K<K"));
-        pool.setAgeAdjustedK(1e17 - 1, 0);
-
-        vm.expectRevert(bytes("MAX_K>=1"));
-        pool.setAgeAdjustedK(ONE, 0);
 
         vm.expectRevert(bytes("BUY_TAX_RATE>=1"));
         pool.setBuyTaxRate(ONE);
@@ -238,41 +251,7 @@ contract PropertyPMMValuationTest is AMMTestBase {
         assertEq(pool.getValuationPrice(), 111 * ONE);
     }
 
-    function testEffectiveKGrowsWithValuationAgeAndCapsAtMaxK() public {
-        uint256 baseK = pool.k();
-        uint256 maxK = 7e17;
-        uint256 growthPerSecond = 1e15;
-        pool.setAgeAdjustedK(maxK, growthPerSecond);
-
-        pool.setValuationPrice(INITIAL_PRICE);
-        assertEq(pool.getEffectiveK(), baseK);
-
-        vm.warp(block.timestamp + 100);
-        assertEq(pool.getEffectiveK(), baseK + (100 * growthPerSecond));
-
-        vm.warp(block.timestamp + 1000);
-        assertEq(pool.getEffectiveK(), maxK);
-    }
-
-    function testZeroGrowthFreezesEffectiveK() public {
-        pool.setAgeAdjustedK(7e17, 0);
-        pool.setValuationPrice(INITIAL_PRICE);
-        vm.warp(block.timestamp + 90 days);
-        assertEq(pool.getEffectiveK(), pool.k());
-    }
-
-    function testSetKAfterAgeConfigChecksMaxK() public {
-        pool.setAgeAdjustedK(2e17, 0);
-
-        vm.expectRevert(bytes("MAX_K<K"));
-        pool.setK(3e17);
-
-        pool.setK(15e16);
-        assertEq(pool.k(), 15e16);
-    }
-
-    function testAgedValuationWorsensFixedSizeQuotes() public {
-        pool.setAgeAdjustedK(7e17, 1e15);
+    function testAgedValuationDoesNotChangeFixedSizeQuotesWithinFreshnessWindow() public {
         pool.setValuationPrice(INITIAL_PRICE);
 
         uint256 freshBuyQuote = pool.queryBuyBaseToken(ONE);
@@ -280,8 +259,8 @@ contract PropertyPMMValuationTest is AMMTestBase {
 
         vm.warp(block.timestamp + 100);
 
-        assertGt(pool.queryBuyBaseToken(ONE), freshBuyQuote);
-        assertLt(pool.querySellBaseToken(ONE), freshSellQuote);
+        assertEq(pool.queryBuyBaseToken(ONE), freshBuyQuote);
+        assertEq(pool.querySellBaseToken(ONE), freshSellQuote);
     }
 }
 
@@ -576,7 +555,15 @@ contract PropertyPMMTradingTaxTest is AMMTestBase {
         assertEq(totalPaid, taxedQuote);
         assertEq(traderQuoteBefore - quote.balanceOf(trader), taxedQuote);
         assertEq(pool.quoteBalance() - poolQuoteBefore, untaxedQuote);
+        
+        // Assert accumulation
+        assertEq(pool.pendingTaxQuote(), expectedTax);
+        assertEq(quote.balanceOf(taxRecipient) - taxQuoteBefore, 0);
+
+        // Claim and assert final transfer
+        pool.claimTax();
         assertEq(quote.balanceOf(taxRecipient) - taxQuoteBefore, expectedTax);
+        assertEq(pool.pendingTaxQuote(), 0);
     }
 
     function testBuyPaysMaintainerInBaseAndMovesPoolAboveOne() public {
@@ -588,11 +575,19 @@ contract PropertyPMMTradingTaxTest is AMMTestBase {
         vm.prank(trader);
         pool.buyBaseToken(buyAmount, totalPaid);
 
-        uint256 maintainerBasePaid = base.balanceOf(maintainer) - maintainerBaseBefore;
+        // Check accumulation
+        uint256 maintainerBasePending = pool.pendingMaintainerFeeBase();
+        assertGt(maintainerBasePending, 0);
+        assertEq(base.balanceOf(maintainer) - maintainerBaseBefore, 0);
 
-        assertGt(maintainerBasePaid, 0);
-        assertEq(pool.baseBalance() + buyAmount + maintainerBasePaid, poolBaseBefore);
+        // Tracked pool base balance + pending maintainer fee + buyAmount must equal poolBaseBefore.
+        assertEq(pool.baseBalance() + buyAmount + maintainerBasePending, poolBaseBefore);
         assertEq(uint256(pool.rStatus()), uint256(RStatus.ABOVE_ONE));
+
+        // Claim and verify
+        pool.claimMaintainerFees();
+        assertEq(base.balanceOf(maintainer) - maintainerBaseBefore, maintainerBasePending);
+        assertEq(pool.pendingMaintainerFeeBase(), 0);
     }
 
     function testSellTaxReducesTraderProceedsAndKeepsPoolAccounting() public {
@@ -620,8 +615,24 @@ contract PropertyPMMTradingTaxTest is AMMTestBase {
 
         assertEq(received, taxedReceive);
         assertEq(traderReceived, taxedReceive);
-        assertGt(taxPaid, 0);
-        assertEq(poolQuoteBefore - pool.quoteBalance(), traderReceived + maintainerPaid + taxPaid);
+        assertEq(taxPaid, 0);
+        assertEq(maintainerPaid, 0);
+
+        uint256 expectedMaintainer = pool.pendingMaintainerFeeQuote();
+        uint256 expectedTax = pool.pendingTaxQuote();
+        assertGt(expectedTax, 0);
+
+        // Check that pool quote balance is correctly adjusted internally
+        assertEq(poolQuoteBefore - pool.quoteBalance(), traderReceived + expectedMaintainer + expectedTax);
+
+        // Claim and verify
+        pool.claimMaintainerFees();
+        pool.claimTax();
+
+        assertEq(quote.balanceOf(maintainer) - maintainerQuoteBefore, expectedMaintainer);
+        assertEq(quote.balanceOf(taxRecipient) - taxQuoteBefore, expectedTax);
+        assertEq(pool.pendingMaintainerFeeQuote(), 0);
+        assertEq(pool.pendingTaxQuote(), 0);
     }
 
     function testSellPaysMaintainerInQuoteAndMovesPoolBelowOne() public {
@@ -636,10 +647,18 @@ contract PropertyPMMTradingTaxTest is AMMTestBase {
 
         uint256 maintainerPaid = quote.balanceOf(maintainer) - maintainerQuoteBefore;
 
-        assertGt(maintainerPaid, 0);
-        assertEq(poolQuoteBefore - pool.quoteBalance(), traderReceived + maintainerPaid);
+        assertEq(maintainerPaid, 0);
+        uint256 expectedMaintainer = pool.pendingMaintainerFeeQuote();
+        assertGt(expectedMaintainer, 0);
+
+        assertEq(poolQuoteBefore - pool.quoteBalance(), traderReceived + expectedMaintainer);
         assertEq(quote.balanceOf(trader) - traderQuoteBefore, traderReceived);
         assertEq(uint256(pool.rStatus()), uint256(RStatus.BELOW_ONE));
+
+        // Claim and verify
+        pool.claimMaintainerFees();
+        assertEq(quote.balanceOf(maintainer) - maintainerQuoteBefore, expectedMaintainer);
+        assertEq(pool.pendingMaintainerFeeQuote(), 0);
     }
 }
 
@@ -698,9 +717,8 @@ contract PropertyPMMControlsTest is AMMTestBase {
 
 contract PropertyPMMDividendTest is AMMTestBase {
     function testClaimQuoteDividendsAccountsClaimedQuoteToLPs() public {
-        MockDividendDistributor dividend = new MockDividendDistributor(quote);
-        quote.mint(address(dividend), 25 * ONE);
-        dividend.setClaimAmount(25 * ONE);
+        quote.mint(address(dividendDistributor), 25 * ONE);
+        dividendDistributor.setClaimAmount(25 * ONE);
 
         uint256 actualQuoteBefore = quote.balanceOf(address(pool));
         uint256 quoteBalanceBefore = pool.quoteBalance();
@@ -709,7 +727,8 @@ contract PropertyPMMDividendTest is AMMTestBase {
         uint256 sellQuoteBefore = pool.querySellBaseToken(ONE);
         uint256 lpQuoteBefore = quote.balanceOf(lpProvider);
 
-        uint256 claimed = pool.claimQuoteDividends(address(dividend), type(uint256).max);
+        vm.prank(supervisor);
+        uint256 claimed = pool.claimQuoteDividends(type(uint256).max);
 
         assertEq(claimed, 25 * ONE);
         assertEq(quote.balanceOf(address(pool)) - actualQuoteBefore, 25 * ONE);
@@ -731,6 +750,22 @@ contract PropertyPMMDividendTest is AMMTestBase {
         _assertTrackedBalancesAtMostActual();
     }
 
+    function testClaimQuoteDividendsRestrictedToDistributorOrOwner() public {
+        quote.mint(address(dividendDistributor), 10 * ONE);
+        dividendDistributor.setClaimAmount(10 * ONE);
+
+        // A random account cannot trigger accounting (anti-JIT gate).
+        vm.prank(outsider);
+        vm.expectRevert(bytes("CLAIM_NOT_AUTHORIZED"));
+        pool.claimQuoteDividends(type(uint256).max);
+
+        // Supervisor (authorized non-owner) can.
+        vm.prank(supervisor);
+        uint256 claimed = pool.claimQuoteDividends(type(uint256).max);
+        assertEq(claimed, 10 * ONE);
+        assertEq(pool.pendingLpQuoteDividends(lpProvider), 10 * ONE);
+    }
+
     function testClaimQuoteDividendsWhileAlreadyUnbalancedPreservesStatusAndTargets() public {
         uint256 buyQuote = pool.queryBuyBaseToken(ONE);
 
@@ -743,11 +778,10 @@ contract PropertyPMMDividendTest is AMMTestBase {
         uint256 quoteBalanceBefore = pool.quoteBalance();
         uint256 midPriceBefore = pool.getMidPrice();
 
-        MockDividendDistributor dividend = new MockDividendDistributor(quote);
-        quote.mint(address(dividend), 5 * ONE);
-        dividend.setClaimAmount(5 * ONE);
+        quote.mint(address(dividendDistributor), 5 * ONE);
+        dividendDistributor.setClaimAmount(5 * ONE);
 
-        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+        pool.claimQuoteDividends(type(uint256).max);
 
         assertEq(uint256(pool.rStatus()), uint256(RStatus.ABOVE_ONE));
         assertEq(pool.targetBaseTokenAmount(), targetBaseBefore);
@@ -764,11 +798,10 @@ contract PropertyPMMDividendTest is AMMTestBase {
         vm.prank(secondProvider);
         pool.provideLiquidity(5 * ONE, 500 * ONE, 0);
 
-        MockDividendDistributor dividend = new MockDividendDistributor(quote);
-        quote.mint(address(dividend), 45 * ONE);
-        dividend.setClaimAmount(30 * ONE);
+        quote.mint(address(dividendDistributor), 45 * ONE);
+        dividendDistributor.setClaimAmount(30 * ONE);
 
-        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+        pool.claimQuoteDividends(type(uint256).max);
 
         assertEq(pool.pendingLpQuoteDividends(lpProvider), 20 * ONE);
         assertEq(pool.pendingLpQuoteDividends(secondProvider), 10 * ONE);
@@ -780,8 +813,8 @@ contract PropertyPMMDividendTest is AMMTestBase {
         assertEq(pool.pendingLpQuoteDividends(secondProvider), 10 * ONE);
         assertEq(pool.pendingLpQuoteDividends(lpReceiver), 0);
 
-        dividend.setClaimAmount(15 * ONE);
-        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+        dividendDistributor.setClaimAmount(15 * ONE);
+        pool.claimQuoteDividends(type(uint256).max);
 
         assertEq(pool.pendingLpQuoteDividends(lpProvider), 30 * ONE);
         assertEq(pool.pendingLpQuoteDividends(secondProvider), 10 * ONE);
@@ -790,11 +823,10 @@ contract PropertyPMMDividendTest is AMMTestBase {
     }
 
     function testWithdrawLiquidityDoesNotErasePendingLpDividends() public {
-        MockDividendDistributor dividend = new MockDividendDistributor(quote);
-        quote.mint(address(dividend), 25 * ONE);
-        dividend.setClaimAmount(25 * ONE);
+        quote.mint(address(dividendDistributor), 25 * ONE);
+        dividendDistributor.setClaimAmount(25 * ONE);
 
-        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+        pool.claimQuoteDividends(type(uint256).max);
 
         uint256 shares = pool.balanceOf(lpProvider);
         vm.prank(lpProvider);
@@ -813,44 +845,47 @@ contract PropertyPMMDividendTest is AMMTestBase {
     }
 
     function testPendingQuoteDividendsReadsPoolPendingAmount() public {
-        MockDividendDistributor dividend = new MockDividendDistributor(quote);
-        dividend.setPendingAmount(11 * ONE);
+        dividendDistributor.setPendingAmount(11 * ONE);
 
-        assertEq(pool.pendingQuoteDividends(address(dividend), 3), 11 * ONE);
+        assertEq(pool.pendingQuoteDividends(3), 11 * ONE);
     }
 
-    function testClaimQuoteDividendsChecksOwnerDistributorAndStablecoin() public {
-        MockDividendDistributor dividend = new MockDividendDistributor(quote);
+    function testClaimQuoteDividendsUsesFixedDistributorAndRejectsOldRedirectSelector() public {
+        // Called as owner (address(this)); the point here is the fixed distributor
+        // and rejection of the old redirect selector, not the caller gate.
+        vm.expectRevert(bytes("NO_DIVIDEND_CLAIMED"));
+        pool.claimQuoteDividends(type(uint256).max);
 
-        vm.prank(outsider);
-        vm.expectRevert(bytes("NOT_OWNER"));
-        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+        MockDividendDistributor otherDividend = new MockDividendDistributor(address(base), address(quote));
+        quote.mint(address(otherDividend), 25 * ONE);
+        otherDividend.setClaimAmount(25 * ONE);
 
-        vm.expectRevert(bytes("INVALID_DIVIDEND_DISTRIBUTOR"));
-        pool.claimQuoteDividends(address(0), type(uint256).max);
-
-        MockDividendDistributor wrongDividend = new MockDividendDistributor(base);
-        vm.expectRevert(bytes("DIVIDEND_TOKEN_NOT_QUOTE"));
-        pool.claimQuoteDividends(address(wrongDividend), type(uint256).max);
+        uint256 poolQuoteBefore = quote.balanceOf(address(pool));
+        (bool ok,) = address(pool)
+            .call(
+                abi.encodeWithSignature(
+                    "claimQuoteDividends(address,uint256)", address(otherDividend), type(uint256).max
+                )
+            );
+        assertFalse(ok);
+        assertEq(quote.balanceOf(address(pool)), poolQuoteBefore);
+        assertEq(quote.balanceOf(address(otherDividend)), 25 * ONE);
     }
 
     function testClaimQuoteDividendsRejectsZeroClaim() public {
-        MockDividendDistributor dividend = new MockDividendDistributor(quote);
-
         vm.expectRevert(bytes("NO_DIVIDEND_CLAIMED"));
-        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+        pool.claimQuoteDividends(type(uint256).max);
     }
 
     function testClaimLpQuoteDividendsChecksPendingAndRecoverProtection() public {
-        MockDividendDistributor dividend = new MockDividendDistributor(quote);
-        quote.mint(address(dividend), 25 * ONE);
-        dividend.setClaimAmount(25 * ONE);
+        quote.mint(address(dividendDistributor), 25 * ONE);
+        dividendDistributor.setClaimAmount(25 * ONE);
 
         vm.prank(lpProvider);
         vm.expectRevert(bytes("NO_LP_DIVIDEND"));
         pool.claimLpQuoteDividends();
 
-        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+        pool.claimQuoteDividends(type(uint256).max);
 
         vm.expectRevert(bytes("QUOTE_BALANCE_NOT_ENOUGH"));
         pool.recoverToken(address(quote), address(this), 1);
@@ -875,11 +910,10 @@ contract PropertyPMMDividendTest is AMMTestBase {
 
         kyc.setVerified(outsider, false);
 
-        MockDividendDistributor dividend = new MockDividendDistributor(quote);
-        quote.mint(address(dividend), 40 * ONE);
-        dividend.setClaimAmount(40 * ONE);
+        quote.mint(address(dividendDistributor), 40 * ONE);
+        dividendDistributor.setClaimAmount(40 * ONE);
 
-        pool.claimQuoteDividends(address(dividend), type(uint256).max);
+        pool.claimQuoteDividends(type(uint256).max);
         assertEq(pool.pendingLpQuoteDividends(outsider), 10 * ONE);
         assertEq(pool.pendingLpQuoteDividends(address(stray)), 10 * ONE);
 
@@ -891,5 +925,63 @@ contract PropertyPMMDividendTest is AMMTestBase {
         vm.prank(address(stray));
         assertEq(pool.claimLpQuoteDividends(), 10 * ONE);
         assertEq(quote.balanceOf(address(stray)) - quoteBefore, 10 * ONE);
+    }
+
+    function testClaimQuoteDividendsWorksWithRealDividendDistributionForApprovedPool() public {
+        KYCRegistry realKycImpl = new KYCRegistry();
+        ERC1967Proxy realKycProxy = new ERC1967Proxy(address(realKycImpl), abi.encodeCall(KYCRegistry.initialize, ()));
+        KYCRegistry realKyc = KYCRegistry(address(realKycProxy));
+        address publicCaller = address(0xBEEF);
+        realKyc.addUser(address(this));
+        realKyc.addUser(publicCaller);
+
+        PropertyToken realBaseImpl = new PropertyToken();
+        UpgradeableBeacon beacon = new UpgradeableBeacon(address(realBaseImpl), address(this));
+        BeaconProxy tokenProxy = new BeaconProxy(
+            address(beacon),
+            abi.encodeCall(
+                PropertyToken.initialize, ("Real Base", "RBASE", 1000 * ONE, 1, address(realKyc), address(this))
+            )
+        );
+        PropertyToken realBase = PropertyToken(address(tokenProxy));
+        MockERC20 realQuote = new MockERC20("Real Quote", "RQUOTE", 18);
+        DividendDistribution realDividend =
+            new DividendDistribution(address(realBase), address(realQuote), address(realKyc), address(this));
+        PropertyPMM realPool = new PropertyPMM(
+            address(this),
+            supervisor,
+            maintainer,
+            address(realBase),
+            address(realQuote),
+            INITIAL_PRICE,
+            DEFAULT_LP_FEE,
+            DEFAULT_MAINTAINER_FEE,
+            DEFAULT_K,
+            address(realDividend)
+        );
+
+        realKyc.addApprovedContract(address(realPool));
+        realQuote.mint(address(this), 200 * ONE);
+        realBase.approve(address(realPool), type(uint256).max);
+        realQuote.approve(address(realPool), type(uint256).max);
+        realPool.provideLiquidity(100 * ONE, 100 * ONE, 0);
+        vm.roll(block.number + 1);
+
+        realQuote.approve(address(realDividend), 100 * ONE);
+        realDividend.depositDividends(100 * ONE);
+
+        assertEq(realPool.pendingQuoteDividends(type(uint256).max), 10 * ONE);
+
+        // A public (non-owner/supervisor) caller can no longer trigger accounting.
+        vm.prank(publicCaller);
+        vm.expectRevert(bytes("CLAIM_NOT_AUTHORIZED"));
+        realPool.claimQuoteDividends(type(uint256).max);
+
+        // Owner (address(this)) triggers it instead.
+        uint256 claimed = realPool.claimQuoteDividends(type(uint256).max);
+
+        assertEq(claimed, 10 * ONE);
+        assertEq(realPool.pendingLpQuoteDividends(address(this)), 10 * ONE);
+        assertEq(realPool.totalPendingLpQuoteDividends(), 10 * ONE);
     }
 }

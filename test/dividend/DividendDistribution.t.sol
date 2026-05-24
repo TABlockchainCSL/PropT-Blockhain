@@ -7,6 +7,9 @@ import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+
 import "../../src/core/PropertyToken.sol";
 import "../../src/core/KYCRegistry.sol";
 import "../../src/dividend/DividendDistribution.sol";
@@ -16,6 +19,36 @@ contract MockUSDC is ERC20 {
     constructor() ERC20("USD Coin", "USDC") {}
     function mint(address to, uint256 amount) external { _mint(to, amount); }
     function decimals() public pure override returns (uint8) { return 6; }
+}
+
+/// @notice Stand-in for PropertyPMM used to exercise depositDividendsAndSync.
+/// @dev Mirrors the real pool: claimQuoteDividends() calls back into the
+///      distributor's claimDividends(), so it doubles as a re-entrancy probe —
+///      if depositDividendsAndSync still held a guard, this callback would revert.
+contract MockPMMPool {
+    DividendDistribution public immutable dividend;
+    IERC20 public immutable usdc;
+    bool public shouldRevert;
+    uint256 public lastClaimed;
+    uint256 public callCount;
+
+    constructor(DividendDistribution dividend_, address usdc_, address token_) {
+        dividend = dividend_;
+        usdc = IERC20(usdc_);
+        // Self-delegate so property tokens received later count as votes.
+        IVotes(token_).delegate(address(this));
+    }
+
+    function setShouldRevert(bool v) external { shouldRevert = v; }
+
+    function claimQuoteDividends(uint256 maxEpochs) external returns (uint256 claimed) {
+        require(!shouldRevert, "POOL_FORCED_REVERT");
+        callCount++;
+        uint256 balBefore = usdc.balanceOf(address(this));
+        dividend.claimDividends(maxEpochs); // nested call back into the distributor
+        claimed = usdc.balanceOf(address(this)) - balBefore;
+        lastClaimed = claimed;
+    }
 }
 
 /// @title DividendDistributionTest
@@ -733,5 +766,119 @@ contract DividendDistributionTest is Test {
             )
         );
         dividend.claimDividends(type(uint256).max);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  depositDividendsAndSync — atomic deposit + pool LP sync (anti-JIT)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @dev Deploys a pool holding `tokenAmount` property tokens (taken from
+    ///      investor1) and KYC-approved, with its checkpoint rolled into the past.
+    function _deployFundedPool(uint256 tokenAmount) internal returns (MockPMMPool poolHolder) {
+        poolHolder = new MockPMMPool(dividend, address(usdc), address(token));
+        kyc.addUser(address(poolHolder));
+
+        // Move tokens to the pool (transfer requires both ends KYC-verified).
+        vm.prank(investor1);
+        token.transfer(address(poolHolder), tokenAmount);
+
+        // Advance so the pool's vote checkpoint is readable via getPastVotes.
+        vm.roll(block.number + 1);
+    }
+
+    function test_depositDividendsAndSync_success() public {
+        // Pool holds 200/1000 = 20% of supply.
+        MockPMMPool poolHolder = _deployFundedPool(200e18);
+        uint256 spvBalBefore = usdc.balanceOf(spv);
+
+        vm.startPrank(spv);
+        usdc.approve(address(dividend), 1000e6);
+        dividend.depositDividendsAndSync(1000e6, address(poolHolder));
+        vm.stopPrank();
+
+        // Epoch created in the same tx.
+        assertEq(dividend.getEpochCount(), 1);
+        // Pool received its 20% share via the nested claimDividends callback —
+        // proving the call is NOT blocked by a held re-entrancy guard.
+        assertEq(usdc.balanceOf(address(poolHolder)), 200e6);
+        assertEq(poolHolder.lastClaimed(), 200e6);
+        assertEq(poolHolder.callCount(), 1);
+        // SPV paid the full deposit.
+        assertEq(usdc.balanceOf(spv), spvBalBefore - 1000e6);
+        // Pool is fully synced — nothing left for a JIT LP to capture.
+        assertEq(dividend.pendingDividends(address(poolHolder), type(uint256).max), 0);
+    }
+
+    function test_depositDividendsAndSync_emitsPoolSynced() public {
+        MockPMMPool poolHolder = _deployFundedPool(200e18);
+
+        vm.startPrank(spv);
+        usdc.approve(address(dividend), 1000e6);
+        vm.expectEmit(true, false, false, true);
+        emit DividendDistribution.PoolSynced(address(poolHolder), 200e6);
+        dividend.depositDividendsAndSync(1000e6, address(poolHolder));
+        vm.stopPrank();
+    }
+
+    function test_depositDividendsAndSync_autoFillsAllEpochs() public {
+        MockPMMPool poolHolder = _deployFundedPool(200e18); // 20%
+
+        vm.startPrank(spv);
+        usdc.approve(address(dividend), 3000e6);
+        // Epoch 0 deposited WITHOUT sync → pool backlog of 1 epoch.
+        dividend.depositDividends(1000e6);
+        vm.roll(block.number + 1);
+
+        // Epoch 1 with sync: auto-fill (type(uint256).max) drains BOTH epochs.
+        dividend.depositDividendsAndSync(2000e6, address(poolHolder));
+        vm.stopPrank();
+
+        // 20% of (1000 + 2000) = 600 USDC, claimed in a single sync call.
+        assertEq(usdc.balanceOf(address(poolHolder)), 600e6);
+        assertEq(dividend.pendingDividends(address(poolHolder), type(uint256).max), 0);
+    }
+
+    function test_depositDividendsAndSync_hardRevertRollsBackDeposit() public {
+        MockPMMPool poolHolder = _deployFundedPool(200e18);
+        poolHolder.setShouldRevert(true);
+
+        uint256 spvBalBefore = usdc.balanceOf(spv);
+        vm.startPrank(spv);
+        usdc.approve(address(dividend), 1000e6);
+        // Pool claim reverts → entire deposit reverts (hard-sync, no try/catch).
+        vm.expectRevert(bytes("POOL_FORCED_REVERT"));
+        dividend.depositDividendsAndSync(1000e6, address(poolHolder));
+        vm.stopPrank();
+
+        // Nothing happened: no epoch, no tokens moved.
+        assertEq(dividend.getEpochCount(), 0);
+        assertEq(usdc.balanceOf(spv), spvBalBefore);
+        assertEq(usdc.balanceOf(address(dividend)), 0);
+    }
+
+    function test_depositDividendsAndSync_revertZeroPool() public {
+        vm.startPrank(spv);
+        usdc.approve(address(dividend), 1000e6);
+        vm.expectRevert(
+            abi.encodeWithSelector(DividendDistribution.ZeroAddress.selector)
+        );
+        dividend.depositDividendsAndSync(1000e6, address(0));
+        vm.stopPrank();
+    }
+
+    function test_depositDividendsAndSync_revertZeroAmount() public {
+        MockPMMPool poolHolder = _deployFundedPool(200e18);
+        vm.prank(spv);
+        vm.expectRevert(
+            abi.encodeWithSelector(DividendDistribution.ZeroAmount.selector)
+        );
+        dividend.depositDividendsAndSync(0, address(poolHolder));
+    }
+
+    function test_depositDividendsAndSync_revertNonDepositor() public {
+        MockPMMPool poolHolder = _deployFundedPool(200e18);
+        vm.prank(investor1);
+        vm.expectRevert();
+        dividend.depositDividendsAndSync(1000e6, address(poolHolder));
     }
 }

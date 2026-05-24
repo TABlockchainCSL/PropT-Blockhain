@@ -16,44 +16,28 @@ contract PropertyPMMFuzzTest is AMMTestBase {
         assertLt(pool.querySellBaseToken(small), pool.querySellBaseToken(large));
     }
 
-    function testFuzzEffectiveKAlwaysWithinBounds(uint64 rawAge, uint96 rawGrowth, uint96 rawMaxK) public {
-        uint256 maxK = bound(uint256(rawMaxK), pool.k(), ONE - 1);
-        uint256 growth = bound(uint256(rawGrowth), 0, 1e15);
-        uint256 age = bound(uint256(rawAge), 0, pool.valuationMaxStaleness());
-
-        pool.setAgeAdjustedK(maxK, growth);
-        pool.setValuationPrice(INITIAL_PRICE);
-        vm.warp(block.timestamp + age);
-
-        uint256 effectiveK = pool.getEffectiveK();
-        assertGe(effectiveK, pool.k());
-        assertLe(effectiveK, pool.maxK());
-    }
-
-    function testFuzzAgedValuationDoesNotImproveFixedSizeBuy(uint96 rawAmount, uint64 rawAge) public {
+    function testFuzzAgedValuationDoesNotChangeFixedSizeBuy(uint96 rawAmount, uint64 rawAge) public {
         uint256 amount = bound(uint256(rawAmount), 1, ONE);
         uint256 age = bound(uint256(rawAge), 1, 1 days);
-        pool.setAgeAdjustedK(7e17, 1e12);
         pool.setValuationPrice(INITIAL_PRICE);
 
         uint256 freshQuote = pool.queryBuyBaseToken(amount);
         vm.warp(block.timestamp + age);
 
         uint256 agedQuote = pool.queryBuyBaseToken(amount);
-        assertGe(agedQuote + 1, freshQuote);
+        assertEq(agedQuote, freshQuote);
     }
 
-    function testFuzzAgedValuationDoesNotImproveFixedSizeSell(uint96 rawAmount, uint64 rawAge) public {
+    function testFuzzAgedValuationDoesNotChangeFixedSizeSell(uint96 rawAmount, uint64 rawAge) public {
         uint256 amount = bound(uint256(rawAmount), 1, ONE);
         uint256 age = bound(uint256(rawAge), 1, 1 days);
-        pool.setAgeAdjustedK(7e17, 1e12);
         pool.setValuationPrice(INITIAL_PRICE);
 
         uint256 freshQuote = pool.querySellBaseToken(amount);
         vm.warp(block.timestamp + age);
 
         uint256 agedQuote = pool.querySellBaseToken(amount);
-        assertLe(agedQuote, freshQuote + 1);
+        assertEq(agedQuote, freshQuote);
     }
 
     // Liquidity share accounting.
@@ -133,7 +117,19 @@ contract PropertyPMMFuzzTest is AMMTestBase {
         vm.prank(trader);
         pool.buyBaseToken(amount, totalQuote);
 
-        assertEq(quote.balanceOf(taxRecipient) - taxBefore, expectedTax);
+        // Tax should be accumulated in the pool, not transferred directly.
+        assertEq(pool.pendingTaxQuote(), expectedTax);
+        assertEq(quote.balanceOf(taxRecipient) - taxBefore, 0);
+
+        // Claim tax and verify
+        if (expectedTax > 0) {
+            pool.claimTax();
+            assertEq(quote.balanceOf(taxRecipient) - taxBefore, expectedTax);
+            assertEq(pool.pendingTaxQuote(), 0);
+        } else {
+            vm.expectRevert(bytes("NO_TAX_TO_CLAIM"));
+            pool.claimTax();
+        }
     }
 
     function testFuzzSellFeeAccounting(uint96 rawAmount, uint96 rawTaxRate) public {
@@ -157,26 +153,46 @@ contract PropertyPMMFuzzTest is AMMTestBase {
         uint256 taxPaid = quote.balanceOf(taxRecipient) - taxBefore;
 
         assertEq(received, traderReceived);
-        assertEq(quoteBefore - pool.quoteBalance(), traderReceived + maintainerPaid + taxPaid);
+        
+        // Fee and tax should be accumulated, so no direct transfer yet.
+        assertEq(maintainerPaid, 0);
+        assertEq(taxPaid, 0);
+
+        uint256 expectedMaintainerFee = pool.pendingMaintainerFeeQuote();
+        uint256 expectedTax = pool.pendingTaxQuote();
+
+        // The tracked quote balance should decrease by the sum of what was paid out to trader + fee + tax.
+        assertEq(quoteBefore - pool.quoteBalance(), traderReceived + expectedMaintainerFee + expectedTax);
+
+        // Claim and verify
+        if (expectedMaintainerFee > 0) {
+            pool.claimMaintainerFees();
+            assertEq(quote.balanceOf(maintainer) - maintainerBefore, expectedMaintainerFee);
+            assertEq(pool.pendingMaintainerFeeQuote(), 0);
+        } else {
+            vm.expectRevert(bytes("NO_FEES_TO_CLAIM"));
+            pool.claimMaintainerFees();
+        }
+
+        if (expectedTax > 0) {
+            pool.claimTax();
+            assertEq(quote.balanceOf(taxRecipient) - taxBefore, expectedTax);
+            assertEq(pool.pendingTaxQuote(), 0);
+        } else {
+            vm.expectRevert(bytes("NO_TAX_TO_CLAIM"));
+            pool.claimTax();
+        }
     }
 
     // Config and PMM status transitions.
-    function testFuzzValidParameterUpdatesAreAccepted(uint96 rawK, uint96 rawMaxK, uint96 rawLpFee, uint96 rawMaintFee)
-        public
-    {
-        uint256 newK = bound(uint256(rawK), 1, 5e17);
-        uint256 newMaxK = bound(uint256(rawMaxK), newK, ONE - 1);
+    function testFuzzValidParameterUpdatesAreAccepted(uint96 rawLpFee, uint96 rawMaintFee) public {
         uint256 newLpFee = bound(uint256(rawLpFee), 0, 1e17);
         uint256 newMaintFee = bound(uint256(rawMaintFee), 0, 1e17);
 
         pool.setMaintainer(maintainer);
-        pool.setK(newK);
-        pool.setAgeAdjustedK(newMaxK, 0);
         pool.setLpFeeRate(newLpFee);
         pool.setMaintainerFeeRate(newMaintFee);
 
-        assertEq(pool.k(), newK);
-        assertEq(pool.maxK(), newMaxK);
         assertEq(pool.lpFeeRate(), newLpFee);
         assertEq(pool.maintainerFeeRate(), newMaintFee);
     }

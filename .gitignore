@@ -26,3 +26,7 @@ docs/
 # ignore pdf, md
 *.pdf
 *.md
+
+# Antigravity
+.antigravitycli/
+

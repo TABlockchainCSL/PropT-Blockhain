@@ -8,6 +8,11 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import "../interfaces/IKYCRegistry.sol";
 
+/// @notice Minimal pool surface used by {DividendDistribution-depositDividendsAndSync}.
+interface IPMMClaim {
+    function claimQuoteDividends(uint256 maxEpochs) external returns (uint256 quoteAmount);
+}
+
 /**
  * @title DividendDistribution
  * @notice Distributes rental income (stablecoin) to PropertyToken holders
@@ -34,8 +39,8 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
     uint256 public constant PRECISION = 1e18;
 
     // ── State Variables ───────────────────────────────────────────────
-    IVotes public immutable propertyToken;    // PropertyToken dari Orang 1
-    IERC20 public immutable stablecoin;       // USDC atau stablecoin IDR
+    IVotes public immutable propertyToken; // PropertyToken dari Orang 1
+    IERC20 public immutable stablecoin; // USDC atau stablecoin IDR
     IKYCRegistry public immutable kycRegistry; // KYCRegistry dari Orang 1
 
     /**
@@ -58,18 +63,9 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
     mapping(address => uint256) public claimedUpToEpoch;
 
     // ── Events ────────────────────────────────────────────────────────
-    event DividendsDeposited(
-        uint256 indexed epochIndex,
-        uint256 blockNumber,
-        uint256 amount,
-        uint256 totalSupply
-    );
-    event DividendsClaimed(
-        address indexed investor,
-        uint256 fromEpoch,
-        uint256 toEpoch,
-        uint256 amountClaimed
-    );
+    event DividendsDeposited(uint256 indexed epochIndex, uint256 blockNumber, uint256 amount, uint256 totalSupply);
+    event DividendsClaimed(address indexed investor, uint256 fromEpoch, uint256 toEpoch, uint256 amountClaimed);
+    event PoolSynced(address indexed pool, uint256 claimed);
 
     // ── Errors ────────────────────────────────────────────────────────
     error ZeroAmount();
@@ -80,12 +76,7 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
     error MaxEpochsZero();
 
     // ── Constructor ───────────────────────────────────────────────────
-    constructor(
-        address _propertyToken,
-        address _stablecoin,
-        address _kycRegistry,
-        address _admin
-    ) {
+    constructor(address _propertyToken, address _stablecoin, address _kycRegistry, address _admin) {
         if (_propertyToken == address(0)) revert ZeroAddress();
         if (_stablecoin == address(0)) revert ZeroAddress();
         if (_kycRegistry == address(0)) revert ZeroAddress();
@@ -103,13 +94,46 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
     /**
      * @notice Called by SPV/admin after receiving rental income.
      *         Caller must approve stablecoin to this contract first.
+     * @dev No-sync variant. Use this when there is no pool to sync, or as a
+     *      recovery path to deposit while draining a pool's epoch backlog
+     *      out-of-band via the pool's own paginated claim.
      * @param amount Amount of stablecoin to deposit as dividends
      */
-    function depositDividends(uint256 amount)
-        external
-        onlyRole(DEPOSITOR_ROLE)
-        nonReentrant
-    {
+    function depositDividends(uint256 amount) external onlyRole(DEPOSITOR_ROLE) nonReentrant {
+        _depositDividends(amount);
+    }
+
+    // ── depositDividendsAndSync() ─────────────────────────────────────
+    /**
+     * @notice Deposit dividends and atomically push them into a pool's LP
+     *         accounting in the same transaction.
+     * @dev Closes the JIT window where a pool's earned-but-unaccounted
+     *      dividends could be captured by a just-in-time LP: the new epoch is
+     *      accounted to the pool's *current* LP set before any later LP can
+     *      front-run a manual claim.
+     *
+     *      The pool's claim runs as a nested call back into {claimDividends},
+     *      so this function is intentionally NOT `nonReentrant` — otherwise the
+     *      callback would hit the held guard and revert. Reentrancy is bounded
+     *      instead by `onlyRole(DEPOSITOR_ROLE)` + checks-effects-interactions
+     *      in {_depositDividends} + the guards on {claimDividends}.
+     *
+     *      Hard-sync (no try/catch): if the pool claim reverts, the entire
+     *      deposit reverts. `maxEpochs` is auto-filled to claim *all* of the
+     *      pool's pending epochs, so no residual unaccounted dividend is left.
+     * @param amount Stablecoin amount to deposit as dividends
+     * @param pool   Pool to sync (must expose claimQuoteDividends)
+     */
+    // slither-disable-next-line reentrancy-no-eth
+    function depositDividendsAndSync(uint256 amount, address pool) external onlyRole(DEPOSITOR_ROLE) {
+        if (pool == address(0)) revert ZeroAddress();
+        _depositDividends(amount);
+        uint256 claimed = IPMMClaim(pool).claimQuoteDividends(type(uint256).max);
+        emit PoolSynced(pool, claimed);
+    }
+
+    /// @dev Shared deposit logic. CEI: epoch is pushed before the token pull.
+    function _depositDividends(uint256 amount) internal {
         if (amount == 0) revert ZeroAmount();
 
         // Gunakan block sebelumnya agar getPastTotalSupply valid
@@ -119,18 +143,18 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
         if (supply < 1) revert ZeroSupply();
 
         // Hitung penambahan akumulator global (kalikan PRECISION dahulu)
-        uint256 prevCumul = epochs.length > 0
-            ? epochs[epochs.length - 1].dividendPerTokenCumul
-            : 0;
+        uint256 prevCumul = epochs.length > 0 ? epochs[epochs.length - 1].dividendPerTokenCumul : 0;
         uint256 addition = (amount * PRECISION) / supply;
 
         // [EFFECT] — perbarui state sebelum transfer
-        epochs.push(DividendEpoch({
-            blockNumber: snapshotBlock,
-            totalSupply: supply,
-            amountDeposited: amount,
-            dividendPerTokenCumul: prevCumul + addition
-        }));
+        epochs.push(
+            DividendEpoch({
+                blockNumber: snapshotBlock,
+                totalSupply: supply,
+                amountDeposited: amount,
+                dividendPerTokenCumul: prevCumul + addition
+            })
+        );
 
         // [INTERACTION] — taruh setelah semua state diperbarui
         stablecoin.safeTransferFrom(msg.sender, address(this), amount);
@@ -150,9 +174,10 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
     function claimDividends(uint256 maxEpochs) external nonReentrant {
         if (maxEpochs < 1) revert MaxEpochsZero();
 
-        // [CHECK] KYC
-        if (!kycRegistry.isVerified(msg.sender))
+        // [CHECK] KYC or approved contract authorization.
+        if (!kycRegistry.isVerified(msg.sender) && !kycRegistry.isApprovedContract(msg.sender)) {
             revert InvestorNotKYCVerified(msg.sender);
+        }
 
         uint256 start = claimedUpToEpoch[msg.sender];
         uint256 totalEpochs = epochs.length;
@@ -163,18 +188,16 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
         uint256 end = maxEpochs >= remaining ? totalEpochs : start + maxEpochs;
 
         uint256 totalClaim = 0;
-        for (uint256 i = start; i < end; ) {
+        for (uint256 i = start; i < end;) {
             // slither-disable-next-line calls-loop
-            uint256 bal = propertyToken.getPastVotes(
-                msg.sender,
-                epochs[i].blockNumber
-            );
+            uint256 bal = propertyToken.getPastVotes(msg.sender, epochs[i].blockNumber);
             if (bal > 0) {
-                uint256 epochDpt = epochs[i].dividendPerTokenCumul
-                    - (i > 0 ? epochs[i-1].dividendPerTokenCumul : 0);
+                uint256 epochDpt = epochs[i].dividendPerTokenCumul - (i > 0 ? epochs[i - 1].dividendPerTokenCumul : 0);
                 totalClaim += (bal * epochDpt) / PRECISION;
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         // [EFFECT] — perbarui state SEBELUM transfer (anti-reentrancy)
@@ -195,9 +218,7 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
      * @param maxEpochs Maximum epochs to iterate (pagination)
      * @return total Amount of stablecoin claimable
      */
-    function pendingDividends(address investor, uint256 maxEpochs)
-        external view returns (uint256 total)
-    {
+    function pendingDividends(address investor, uint256 maxEpochs) external view returns (uint256 total) {
         uint256 start = claimedUpToEpoch[investor];
         uint256 totalEpochs = epochs.length;
         if (totalEpochs <= start) return 0;
@@ -205,17 +226,16 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
         uint256 remaining = totalEpochs - start;
         uint256 end = maxEpochs >= remaining ? totalEpochs : start + maxEpochs;
 
-        for (uint256 i = start; i < end; ) {
+        for (uint256 i = start; i < end;) {
             // slither-disable-next-line calls-loop
-            uint256 bal = propertyToken.getPastVotes(
-                investor, epochs[i].blockNumber
-            );
+            uint256 bal = propertyToken.getPastVotes(investor, epochs[i].blockNumber);
             if (bal > 0) {
-                uint256 dpt = epochs[i].dividendPerTokenCumul
-                    - (i > 0 ? epochs[i-1].dividendPerTokenCumul : 0);
+                uint256 dpt = epochs[i].dividendPerTokenCumul - (i > 0 ? epochs[i - 1].dividendPerTokenCumul : 0);
                 total += (bal * dpt) / PRECISION;
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
     }
 
@@ -230,9 +250,7 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
      * @notice Get details of a specific epoch.
      * @param idx Index of the epoch (0-based)
      */
-    function getEpoch(uint256 idx)
-        external view returns (DividendEpoch memory)
-    {
+    function getEpoch(uint256 idx) external view returns (DividendEpoch memory) {
         return epochs[idx];
     }
 }

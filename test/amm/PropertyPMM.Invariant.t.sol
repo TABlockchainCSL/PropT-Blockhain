@@ -137,20 +137,14 @@ contract PropertyPMMHandler is Test {
         pool.setValuationPriceWithTimestamp(price, block.timestamp - age);
     }
 
-    function updateFeesAndK(uint96 rawK, uint96 rawMaxK, uint96 rawLpFee, uint96 rawMaintFee, uint96 rawTaxFee)
-        external
-    {
+    function updateFeesAndTaxes(uint96 rawLpFee, uint96 rawMaintFee, uint96 rawTaxFee) external {
         configCalls++;
-        uint256 newK = bound(uint256(rawK), 1, 5e17);
-        uint256 newMaxK = bound(uint256(rawMaxK), newK, ONE - 1);
         uint256 newLpFee = bound(uint256(rawLpFee), 0, 5e16);
         uint256 newMaintFee = bound(uint256(rawMaintFee), 0, 5e16);
         uint256 newTaxFee = bound(uint256(rawTaxFee), 0, 5e16);
 
         vm.startPrank(owner);
         pool.setMaintainer(maintainer);
-        pool.setK(newK);
-        pool.setAgeAdjustedK(newMaxK, 0);
         pool.setLpFeeRate(newLpFee);
         pool.setMaintainerFeeRate(newMaintFee);
         pool.setTaxRecipient(taxRecipient);
@@ -220,7 +214,7 @@ contract PropertyPMMInvariantTest is AMMTestBase {
         selectors[3] = handler.sellBaseToken.selector;
         selectors[4] = handler.transferLp.selector;
         selectors[5] = handler.updateValuation.selector;
-        selectors[6] = handler.updateFeesAndK.selector;
+        selectors[6] = handler.updateFeesAndTaxes.selector;
         selectors[7] = handler.toggleTrading.selector;
 
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
@@ -244,18 +238,9 @@ contract PropertyPMMInvariantTest is AMMTestBase {
         }
     }
 
-    function invariantEffectiveKWithinConfiguredBoundsWhenValuationValid() public {
-        try pool.getEffectiveK() returns (uint256 effectiveK) {
-            assertGe(effectiveK, pool.k());
-            assertLe(effectiveK, pool.maxK());
-        } catch {}
-    }
-
     function invariantFeeAndKParametersStayWithinBounds() public {
         assertGt(pool.k(), 0);
         assertLt(pool.k(), ONE);
-        assertGe(pool.maxK(), pool.k());
-        assertLt(pool.maxK(), ONE);
         assertLt(pool.buyTaxRate(), ONE);
         assertLt(pool.lpFeeRate() + pool.maintainerFeeRate() + pool.sellTaxRate(), ONE);
     }

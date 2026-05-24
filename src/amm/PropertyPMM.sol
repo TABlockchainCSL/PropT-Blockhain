@@ -14,6 +14,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @notice Interface for claiming quote-token dividends.
 interface IDividendDistributionMinimal {
+    function propertyToken() external view returns (address);
     function stablecoin() external view returns (address);
     function claimDividends(uint256 maxEpochs) external;
     function pendingDividends(address investor, uint256 maxEpochs) external view returns (uint256);
@@ -24,11 +25,18 @@ interface IPropertyTokenKYC {
     function kycRegistry() external view returns (IKYCRegistry);
 }
 
+/// @notice Optional ERC20Votes delegation surface.
+interface IPropertyTokenDelegate {
+    function delegate(address delegatee) external;
+}
+
 /// @title PropertyPMM
 /// @notice PMM pool for trading property tokens against a quote token. Quote = Stablecoin, Base = PropertyToken.
 /// @dev LP shares are ERC20 tokens; reserves are tracked internally in 18-decimal WAD units.
 contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
     uint8 public constant TOKEN_DECIMALS = 18;
+    string private constant SHARE_NAME = "Property PMM LP";
+    string private constant SHARE_SYMBOL = "PPMM-LP";
 
     /// @notice Token sold by the pool (Property Token).
     IERC20Metadata public immutable baseToken;
@@ -36,6 +44,8 @@ contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
     IERC20Metadata public immutable quoteToken;
     /// @notice KYC registry inferred from the base property token.
     IKYCRegistry public immutable kycRegistry;
+    /// @notice Fixed dividend distributor for base-token dividends paid in quote tokens.
+    IDividendDistributionMinimal public immutable dividendDistributor;
 
     /// Decimal Adjustment for supporting non 18-decimal tokens.
 
@@ -73,6 +83,12 @@ contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
     /// @notice Tracked quote reserve in WAD units.
     uint256 public quoteBalance;
 
+    /// @notice Pending fee and tax balances to be claimed.
+    uint256 public pendingMaintainerFeeBase;
+    uint256 public pendingMaintainerFeeQuote;
+    uint256 public pendingTaxBase;
+    uint256 public pendingTaxQuote;
+
     event LiquidityProvided(address indexed provider, uint256 baseAmount, uint256 quoteAmount, uint256 sharesMinted);
     event LiquidityWithdrawn(address indexed receiver, uint256 baseAmount, uint256 quoteAmount, uint256 sharesBurned);
     event BuyBaseToken(address indexed buyer, uint256 receiveBase, uint256 payQuote);
@@ -84,6 +100,8 @@ contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
     event SellingEnabledUpdated(bool oldValue, bool newValue);
     event TokenRecovered(address indexed token, address indexed to, uint256 amount);
     event QuoteDividendsClaimed(address indexed dividendDistributor, uint256 quoteAmount);
+    event MaintainerFeesClaimed(address indexed recipient, uint256 baseAmount, uint256 quoteAmount);
+    event TaxClaimed(address indexed recipient, uint256 baseAmount, uint256 quoteAmount);
 
     error InvalidKYCRegistry();
     error SenderNotAuthorized(address sender);
@@ -114,34 +132,35 @@ contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
         uint256 lpFeeRate_,
         uint256 maintainerFeeRate_,
         uint256 k_,
-        string memory shareName_,
-        string memory shareSymbol_
+        address dividendDistributor_
     )
-        ERC20(shareName_, shareSymbol_)
+        ERC20(SHARE_NAME, SHARE_SYMBOL)
         AMMConfig(owner_, supervisor_, maintainer_, initialValuationPrice_, lpFeeRate_, maintainerFeeRate_, k_)
     {
         require(baseToken_ != address(0), "INVALID_BASE_TOKEN");
         require(quoteToken_ != address(0), "INVALID_QUOTE_TOKEN");
         require(baseToken_ != quoteToken_, "IDENTICAL_TOKENS");
 
-        IKYCRegistry registry = IPropertyTokenKYC(baseToken_).kycRegistry();
-        if (address(registry) == address(0)) revert InvalidKYCRegistry();
+        kycRegistry = IPropertyTokenKYC(baseToken_).kycRegistry();
+        if (address(kycRegistry) == address(0)) revert InvalidKYCRegistry();
 
-        uint8 baseDecimals_ = IERC20Metadata(baseToken_).decimals();
-        uint8 quoteDecimals_ = IERC20Metadata(quoteToken_).decimals();
-        require(baseDecimals_ <= TOKEN_DECIMALS, "BASE_DECIMALS_GT_18");
-        require(quoteDecimals_ <= TOKEN_DECIMALS, "QUOTE_DECIMALS_GT_18");
+        baseTokenDecimals = IERC20Metadata(baseToken_).decimals();
+        quoteTokenDecimals = IERC20Metadata(quoteToken_).decimals();
+        require(baseTokenDecimals <= TOKEN_DECIMALS, "BASE_DECIMALS_GT_18");
+        require(quoteTokenDecimals <= TOKEN_DECIMALS, "QUOTE_DECIMALS_GT_18");
+
+        _validateDividendDistributor(dividendDistributor_, baseToken_, quoteToken_);
 
         baseToken = IERC20Metadata(baseToken_);
         quoteToken = IERC20Metadata(quoteToken_);
-        kycRegistry = registry;
-        baseTokenDecimals = baseDecimals_;
-        quoteTokenDecimals = quoteDecimals_;
-        baseTokenScale = 10 ** (TOKEN_DECIMALS - baseDecimals_);
-        quoteTokenScale = 10 ** (TOKEN_DECIMALS - quoteDecimals_);
+        dividendDistributor = IDividendDistributionMinimal(dividendDistributor_);
+        baseTokenScale = 10 ** (TOKEN_DECIMALS - baseTokenDecimals);
+        quoteTokenScale = 10 ** (TOKEN_DECIMALS - quoteTokenDecimals);
         buyingEnabled = true;
         sellingEnabled = true;
         rStatus = RStatus.ONE;
+
+        _trySelfDelegate(baseToken_);
     }
 
     /// @notice Enable swaps once the pool is funded and valuation is clear.
@@ -189,13 +208,13 @@ contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
 
         if (token == address(baseToken)) {
             require(
-                baseToken.balanceOf(address(this)) >= _baseTokenFromWadUp(baseBalance) + amount,
+                baseToken.balanceOf(address(this)) >= _baseTokenFromWadUp(baseBalance) + _baseTokenFromWadUp(pendingMaintainerFeeBase) + _baseTokenFromWadUp(pendingTaxBase) + amount,
                 "BASE_BALANCE_NOT_ENOUGH"
             );
         } else if (token == address(quoteToken)) {
             require(
                 quoteToken.balanceOf(address(this))
-                    >= _quoteTokenFromWadUp(quoteBalance) + totalPendingLpQuoteDividends + amount,
+                    >= _quoteTokenFromWadUp(quoteBalance) + totalPendingLpQuoteDividends + _quoteTokenFromWadUp(pendingMaintainerFeeQuote) + _quoteTokenFromWadUp(pendingTaxQuote) + amount,
                 "QUOTE_BALANCE_NOT_ENOUGH"
             );
         }
@@ -205,22 +224,21 @@ contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
     }
 
     /// @notice Return pending quote-token dividends for this pool.
-    function pendingQuoteDividends(address dividendDistributor, uint256 maxEpochs) external view returns (uint256) {
-        require(dividendDistributor != address(0), "INVALID_DIVIDEND_DISTRIBUTOR");
-        return IDividendDistributionMinimal(dividendDistributor).pendingDividends(address(this), maxEpochs);
+    function pendingQuoteDividends(uint256 maxEpochs) external view returns (uint256) {
+        return dividendDistributor.pendingDividends(address(this), maxEpochs);
     }
 
     /// @notice Claim quote-token dividends and account them to LP shares.
-    function claimQuoteDividends(address dividendDistributor, uint256 maxEpochs)
-        external
-        onlyOwner
-        nonReentrant
-        returns (uint256 quoteAmount)
-    {
-        require(dividendDistributor != address(0), "INVALID_DIVIDEND_DISTRIBUTOR");
-        IDividendDistributionMinimal distributor = IDividendDistributionMinimal(dividendDistributor);
-        require(distributor.stablecoin() == address(quoteToken), "DIVIDEND_TOKEN_NOT_QUOTE");
-
+    /// @dev Restricted to the dividend distributor (so depositDividendsAndSync can
+    ///      sync atomically) or the pool's owner/supervisor (for paginated catch-up
+    ///      and recovery). Removing the permissionless trigger denies a JIT LP the
+    ///      ability to time the accounting event around their own deposit.
+    function claimQuoteDividends(uint256 maxEpochs) external nonReentrant returns (uint256 quoteAmount) {
+        require(
+            msg.sender == address(dividendDistributor) || msg.sender == owner || msg.sender == supervisor,
+            "CLAIM_NOT_AUTHORIZED"
+        );
+        IDividendDistributionMinimal distributor = dividendDistributor;
         uint256 balanceBefore = quoteToken.balanceOf(address(this));
         distributor.claimDividends(maxEpochs);
         quoteAmount = quoteToken.balanceOf(address(this)) - balanceBefore;
@@ -228,7 +246,7 @@ contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
 
         _accountLpQuoteDividends(quoteAmount);
 
-        emit QuoteDividendsClaimed(dividendDistributor, quoteAmount);
+        emit QuoteDividendsClaimed(address(distributor), quoteAmount);
     }
 
     /// @notice Claim quote-token dividends earned by LP shares.
@@ -381,6 +399,23 @@ contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
         return PMMQuoter.midPrice(_poolState(), _getPricingState());
     }
 
+    function _validateDividendDistributor(address distributor, address expectedBaseToken, address expectedQuoteToken)
+        private
+        view
+    {
+        require(distributor != address(0), "INVALID_DIVIDEND_DISTRIBUTOR");
+        require(
+            IDividendDistributionMinimal(distributor).propertyToken() == expectedBaseToken, "DIVIDEND_TOKEN_NOT_BASE"
+        );
+        require(
+            IDividendDistributionMinimal(distributor).stablecoin() == expectedQuoteToken, "DIVIDEND_TOKEN_NOT_QUOTE"
+        );
+    }
+
+    function _trySelfDelegate(address token) private {
+        try IPropertyTokenDelegate(token).delegate(address(this)) {} catch {}
+    }
+
     function _update(address from, address to, uint256 value) internal override {
         _settleLpQuoteDividends(from);
         if (to != from) {
@@ -456,25 +491,29 @@ contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
 
     function _chargeSellFees(SellQuote memory quote) internal {
         if (quote.maintainerFeeQuote > 0) {
-            uint256 maintainerFee = _quoteTokenTransferOut(maintainer, quote.maintainerFeeQuote);
-            emit ChargeMaintainerFee(maintainer, false, maintainerFee);
+            quoteBalance -= quote.maintainerFeeQuote;
+            pendingMaintainerFeeQuote += quote.maintainerFeeQuote;
+            emit ChargeMaintainerFee(maintainer, false, quote.maintainerFeeQuote);
         }
 
         if (quote.sellTaxQuote > 0) {
-            uint256 sellTax = _quoteTokenTransferOut(taxRecipient, quote.sellTaxQuote);
-            emit ChargeTax(taxRecipient, sellTax, false);
+            quoteBalance -= quote.sellTaxQuote;
+            pendingTaxQuote += quote.sellTaxQuote;
+            emit ChargeTax(taxRecipient, quote.sellTaxQuote, false);
         }
     }
 
     function _chargeBuyFees(BuyQuote memory quote) internal {
         if (quote.buyTaxQuote > 0) {
-            uint256 buyTax = _quoteTokenTransferFrom(msg.sender, taxRecipient, quote.buyTaxQuote);
+            uint256 buyTax = _quoteTokenTransferFrom(msg.sender, address(this), quote.buyTaxQuote);
+            pendingTaxQuote += quote.buyTaxQuote;
             emit ChargeTax(taxRecipient, buyTax, true);
         }
 
         if (quote.maintainerFeeBase > 0) {
-            uint256 maintainerFee = _baseTokenTransferOut(maintainer, quote.maintainerFeeBase);
-            emit ChargeMaintainerFee(maintainer, true, maintainerFee);
+            baseBalance -= quote.maintainerFeeBase;
+            pendingMaintainerFeeBase += quote.maintainerFeeBase;
+            emit ChargeMaintainerFee(maintainer, true, quote.maintainerFeeBase);
         }
     }
 
@@ -551,5 +590,49 @@ contract PropertyPMM is ERC20, AMMConfig, AMMLPDividends, ReentrancyGuard {
 
     function _quoteTokenFromWadUp(uint256 amountWad) internal view returns (uint256) {
         return FixedPointMathLib.divUp(amountWad, quoteTokenScale);
+    }
+
+    function claimMaintainerFees() external nonReentrant {
+        address recipient = maintainer;
+        uint256 baseAmountWad = pendingMaintainerFeeBase;
+        uint256 quoteAmountWad = pendingMaintainerFeeQuote;
+
+        require(baseAmountWad > 0 || quoteAmountWad > 0, "NO_FEES_TO_CLAIM");
+
+        pendingMaintainerFeeBase = 0;
+        pendingMaintainerFeeQuote = 0;
+
+        if (baseAmountWad > 0) {
+            uint256 baseAmount = _baseTokenFromWadDown(baseAmountWad);
+            require(baseToken.transfer(recipient, baseAmount), "BASE_TRANSFER_FAILED");
+        }
+        if (quoteAmountWad > 0) {
+            uint256 quoteAmount = _quoteTokenFromWadDown(quoteAmountWad);
+            require(quoteToken.transfer(recipient, quoteAmount), "QUOTE_TRANSFER_FAILED");
+        }
+
+        emit MaintainerFeesClaimed(recipient, baseAmountWad, quoteAmountWad);
+    }
+
+    function claimTax() external nonReentrant {
+        address recipient = taxRecipient;
+        uint256 baseAmountWad = pendingTaxBase;
+        uint256 quoteAmountWad = pendingTaxQuote;
+
+        require(baseAmountWad > 0 || quoteAmountWad > 0, "NO_TAX_TO_CLAIM");
+
+        pendingTaxBase = 0;
+        pendingTaxQuote = 0;
+
+        if (baseAmountWad > 0) {
+            uint256 baseAmount = _baseTokenFromWadDown(baseAmountWad);
+            require(baseToken.transfer(recipient, baseAmount), "BASE_TRANSFER_FAILED");
+        }
+        if (quoteAmountWad > 0) {
+            uint256 quoteAmount = _quoteTokenFromWadDown(quoteAmountWad);
+            require(quoteToken.transfer(recipient, quoteAmount), "QUOTE_TRANSFER_FAILED");
+        }
+
+        emit TaxClaimed(recipient, baseAmountWad, quoteAmountWad);
     }
 }

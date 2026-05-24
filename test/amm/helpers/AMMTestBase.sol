@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {PropertyPMM} from "../../../src/amm/PropertyPMM.sol";
 import {RStatus} from "../../../src/amm/types/PMMTypes.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 contract MockKYCRegistry {
@@ -70,6 +71,36 @@ contract MockERC20 is IERC20Metadata {
     }
 }
 
+contract MockDividendDistributor {
+    address public immutable propertyToken;
+    address public immutable stablecoin;
+    uint256 public claimAmount;
+    uint256 public pendingAmount;
+
+    constructor(address propertyToken_, address stablecoin_) {
+        propertyToken = propertyToken_;
+        stablecoin = stablecoin_;
+    }
+
+    function setClaimAmount(uint256 amount) external {
+        claimAmount = amount;
+    }
+
+    function setPendingAmount(uint256 amount) external {
+        pendingAmount = amount;
+    }
+
+    function claimDividends(uint256) external {
+        uint256 amount = claimAmount;
+        claimAmount = 0;
+        IERC20(stablecoin).transfer(msg.sender, amount);
+    }
+
+    function pendingDividends(address, uint256) external view returns (uint256) {
+        return pendingAmount;
+    }
+}
+
 abstract contract AMMTestBase is Test {
     uint256 internal constant ONE = 1e18;
     uint256 internal constant INITIAL_BASE = 10 * ONE;
@@ -83,6 +114,7 @@ abstract contract AMMTestBase is Test {
     MockERC20 internal quote;
     MockERC20 internal stray;
     MockKYCRegistry internal kyc;
+    MockDividendDistributor internal dividendDistributor;
     PropertyPMM internal pool;
 
     address internal lpProvider = address(0x1000);
@@ -109,6 +141,7 @@ abstract contract AMMTestBase is Test {
         quote = new MockERC20("Quote", "QUOTE", 18);
         stray = new MockERC20("Stray", "STRAY", 18);
         base.setKycRegistry(address(kyc));
+        dividendDistributor = new MockDividendDistributor(address(base), address(quote));
 
         pool = new PropertyPMM(
             address(this),
@@ -120,8 +153,7 @@ abstract contract AMMTestBase is Test {
             DEFAULT_LP_FEE,
             DEFAULT_MAINTAINER_FEE,
             DEFAULT_K,
-            "Modern DODO LP",
-            "mDLP"
+            address(dividendDistributor)
         );
     }
 
@@ -147,6 +179,16 @@ abstract contract AMMTestBase is Test {
         internal
         returns (PropertyPMM)
     {
+        MockDividendDistributor poolDividendDistributor = new MockDividendDistributor(baseToken_, quoteToken_);
+        return _newPoolWithTokensAndDistributor(baseToken_, quoteToken_, maintainer_, address(poolDividendDistributor));
+    }
+
+    function _newPoolWithTokensAndDistributor(
+        address baseToken_,
+        address quoteToken_,
+        address maintainer_,
+        address dividendDistributor_
+    ) internal returns (PropertyPMM) {
         return new PropertyPMM(
             address(this),
             supervisor,
@@ -157,8 +199,7 @@ abstract contract AMMTestBase is Test {
             DEFAULT_LP_FEE,
             DEFAULT_MAINTAINER_FEE,
             DEFAULT_K,
-            "Bad",
-            "BAD"
+            dividendDistributor_
         );
     }
 

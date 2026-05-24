@@ -9,11 +9,20 @@ contract ClaimQuoteDividendsScript is AMMScriptBase {
     function run() external returns (uint256 quoteAmount) {
         PropertyPMM pool = _pool();
         uint256 privateKey = _privateKey();
-        address dividendDistributor = vm.envAddress("DIVIDEND_DISTRIBUTOR");
+        address dividendDistributor = address(pool.dividendDistributor());
         uint256 maxEpochs = vm.envOr("MAX_EPOCHS", type(uint256).max);
 
+        // claimQuoteDividends is gated to the distributor / owner / supervisor.
+        // A script broadcaster can only use the owner or supervisor branch, so
+        // fail fast with a clear message rather than a raw on-chain revert.
+        address sender = _sender();
+        require(
+            sender == pool.owner() || sender == pool.supervisor(),
+            "SENDER_NOT_OWNER_OR_SUPERVISOR"
+        );
+
         vm.startBroadcast(privateKey);
-        quoteAmount = pool.claimQuoteDividends(dividendDistributor, maxEpochs);
+        quoteAmount = pool.claimQuoteDividends(maxEpochs);
         vm.stopBroadcast();
 
         console2.log("pool:", address(pool));

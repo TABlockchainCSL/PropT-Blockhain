@@ -7,6 +7,22 @@ import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {TestnetERC20} from "../../src/amm/testnet/TestnetERC20.sol";
 import {TestnetKYCRegistry} from "../../src/amm/testnet/TestnetKYCRegistry.sol";
 
+contract TestnetDividendDistributor {
+    address public immutable propertyToken;
+    address public immutable stablecoin;
+
+    constructor(address propertyToken_, address stablecoin_) {
+        propertyToken = propertyToken_;
+        stablecoin = stablecoin_;
+    }
+
+    function claimDividends(uint256) external {}
+
+    function pendingDividends(address, uint256) external pure returns (uint256) {
+        return 0;
+    }
+}
+
 contract DeployTestnetAMMScript is Script {
     uint256 internal constant ONE = 1e18;
     uint256 internal constant INITIAL_PRICE = 100 * ONE;
@@ -30,6 +46,7 @@ contract DeployTestnetAMMScript is Script {
         TestnetERC20 base = new TestnetERC20("PropT Test Property", "tPROP", 18);
         TestnetERC20 quote = new TestnetERC20("PropT Test Rupiah", "tIDR", 18);
         base.setKycRegistry(address(kyc));
+        TestnetDividendDistributor dividendDistributor = new TestnetDividendDistributor(address(base), address(quote));
 
         pool = new PropertyPMM(
             deployer,
@@ -41,8 +58,7 @@ contract DeployTestnetAMMScript is Script {
             LP_FEE_RATE,
             MAINTAINER_FEE_RATE,
             DEFAULT_K,
-            "PropT AMM LP",
-            "PAMM-LP"
+            address(dividendDistributor)
         );
 
         base.mint(deployer, INITIAL_WALLET_BASE);
@@ -59,6 +75,7 @@ contract DeployTestnetAMMScript is Script {
         console2.log("pool:", address(pool));
         console2.log("base:", address(base));
         console2.log("quote:", address(quote));
+        console2.log("dividendDistributor:", address(dividendDistributor));
         console2.log("kyc:", address(kyc));
         console2.log("initialValuationPrice:", INITIAL_PRICE);
         console2.log("initialBaseLiquidity:", INITIAL_BASE_LIQUIDITY);
