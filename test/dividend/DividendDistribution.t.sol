@@ -776,9 +776,10 @@ contract DividendDistributionTest is Test {
     ///      investor1) and KYC-approved, with its checkpoint rolled into the past.
     function _deployFundedPool(uint256 tokenAmount) internal returns (MockPMMPool poolHolder) {
         poolHolder = new MockPMMPool(dividend, address(usdc), address(token));
-        kyc.addUser(address(poolHolder));
+        // Use addApprovedContract instead of addUser (testing the approved contract KYC bypass logic)
+        kyc.addApprovedContract(address(poolHolder));
 
-        // Move tokens to the pool (transfer requires both ends KYC-verified).
+        // Move tokens to the pool (transfer requires both ends KYC-verified OR approved contract).
         vm.prank(investor1);
         token.transfer(address(poolHolder), tokenAmount);
 
@@ -880,5 +881,55 @@ contract DividendDistributionTest is Test {
         vm.prank(investor1);
         vm.expectRevert();
         dividend.depositDividendsAndSync(1000e6, address(poolHolder));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Approved Contract KYC Bypass Tests
+    // ═══════════════════════════════════════════════════════════════════
+
+    function test_claimDividends_approvedContract_success() public {
+        MockPMMPool approvedContract = new MockPMMPool(dividend, address(usdc), address(token));
+        
+        // Add to approved contracts list, keeping KYC verified as false
+        kyc.addApprovedContract(address(approvedContract));
+        
+        // Transfer property tokens to the approved contract
+        vm.prank(investor1);
+        token.transfer(address(approvedContract), 200e18);
+        vm.roll(block.number + 1);
+        
+        // Deposit dividends (20% to the approved contract)
+        vm.startPrank(spv);
+        usdc.approve(address(dividend), 1000e6);
+        dividend.depositDividends(1000e6);
+        vm.stopPrank();
+        
+        // Assertions: it is NOT KYC-verified, but IS an approved contract
+        assertFalse(kyc.isVerified(address(approvedContract)));
+        assertTrue(kyc.isApprovedContract(address(approvedContract)));
+        
+        // Call claimDividends through the approved contract callback
+        approvedContract.claimQuoteDividends(type(uint256).max);
+        
+        // Assert: approved contract received its 20% of 1000 USDC = 200 USDC
+        assertEq(usdc.balanceOf(address(approvedContract)), 200e6);
+    }
+
+    function test_claimDividends_revertIfNotApprovedContract() public {
+        MockPMMPool unapprovedContract = new MockPMMPool(dividend, address(usdc), address(token));
+        
+        // Assertions: it is neither KYC-verified nor an approved contract
+        assertFalse(kyc.isVerified(address(unapprovedContract)));
+        assertFalse(kyc.isApprovedContract(address(unapprovedContract)));
+        
+        // Claiming dividends should revert with InvestorNotKYCVerified
+        vm.prank(address(unapprovedContract));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DividendDistribution.InvestorNotKYCVerified.selector,
+                address(unapprovedContract)
+            )
+        );
+        dividend.claimDividends(type(uint256).max);
     }
 }
