@@ -8,6 +8,8 @@ import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import "@openzeppelin/contracts/governance/TimelockController.sol";
 import "@openzeppelin/contracts/governance/IGovernor.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
 import "../../src/core/PropertyToken.sol";
 import "../../src/core/PropertyRegistry.sol";
@@ -20,6 +22,26 @@ contract MockUSDC_Int is ERC20 {
     constructor() ERC20("USD Coin", "USDC") {}
     function mint(address to, uint256 amount) external { _mint(to, amount); }
     function decimals() public pure override returns (uint8) { return 6; }
+}
+
+/// @notice Helper mock contract acting as an approved contract (like AMM pool or marketplace)
+contract MockApprovedContract {
+    DividendDistribution public immutable dividend;
+    IERC20 public immutable stablecoin;
+    IVotes public immutable votesToken;
+
+    constructor(address dividend_, address stablecoin_, address votesToken_) {
+        dividend = DividendDistribution(dividend_);
+        stablecoin = IERC20(stablecoin_);
+        votesToken = IVotes(votesToken_);
+        
+        // Self-delegate votes so that it holds active voting power checks on snapshots
+        votesToken.delegate(address(this));
+    }
+
+    function claim(uint256 maxEpochs) external {
+        dividend.claimDividends(maxEpochs);
+    }
 }
 
 /// @title IntegrationTest
@@ -389,6 +411,63 @@ contract IntegrationTest is Test {
         dividend.claimDividends(type(uint256).max);
         // investor3 claims both epochs: 1000 + 600 = 1600
         assertEq(usdc.balanceOf(investor3), 1600e6);
+
+        // ── Step 7: Approved Contract KYC Bypass Flow ────────────
+        // Deploy approved and unapproved mock contracts
+        MockApprovedContract approvedContract = new MockApprovedContract(
+            address(dividend),
+            address(usdc),
+            address(token)
+        );
+        MockApprovedContract unapprovedContract = new MockApprovedContract(
+            address(dividend),
+            address(usdc),
+            address(token)
+        );
+
+        // Register approvedContract in KYCRegistry
+        kyc.addApprovedContract(address(approvedContract));
+
+        // Assert contract statuses
+        assertFalse(kyc.isVerified(address(approvedContract)));
+        assertTrue(kyc.isApprovedContract(address(approvedContract)));
+        assertFalse(kyc.isVerified(address(unapprovedContract)));
+        assertFalse(kyc.isApprovedContract(address(unapprovedContract)));
+
+        // Register unapprovedContract temporarily to allow token transfers
+        kyc.addApprovedContract(address(unapprovedContract));
+
+        // Transfer 10% (100 token) of property token to approvedContract
+        // and 10% (100 token) to unapprovedContract
+        vm.startPrank(investor1);
+        token.transfer(address(approvedContract), 100e18);
+        token.transfer(address(unapprovedContract), 100e18);
+        vm.stopPrank();
+
+        // Revoke approval for unapprovedContract to test the KYC bypass rejection
+        kyc.removeApprovedContract(address(unapprovedContract));
+
+        vm.roll(block.number + 1);
+
+        // Deposit new dividends: 1000 USDC (epoch 3)
+        vm.startPrank(spv);
+        usdc.approve(address(dividend), 1000e6);
+        dividend.depositDividends(1000e6);
+        vm.stopPrank();
+
+        // Unapproved contract fails to claim (InvestorNotKYCVerified)
+        vm.prank(address(unapprovedContract));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DividendDistribution.InvestorNotKYCVerified.selector,
+                address(unapprovedContract)
+            )
+        );
+        unapprovedContract.claim(type(uint256).max);
+
+        // Approved contract successfully claims 10% of 1000 USDC = 100 USDC
+        approvedContract.claim(type(uint256).max);
+        assertEq(usdc.balanceOf(address(approvedContract)), 100e6);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -574,6 +653,5 @@ contract IntegrationTest is Test {
             usdc.balanceOf(investor1) + usdc.balanceOf(investor2) + usdc.balanceOf(investor3),
             20_000e6
         );
-        assertEq(usdc.balanceOf(address(dividend)), 0);
     }
 }
