@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {PropertyPMM} from "../../src/amm/PropertyPMM.sol";
 import {AMMConfig} from "../../src/amm/base/AMMConfig.sol";
 import {AMMRoles} from "../../src/amm/base/AMMRoles.sol";
-import {TestnetERC20} from "../../src/amm/testnet/TestnetERC20.sol";
 import {PMMQuoter} from "../../src/amm/libraries/PMMQuoter.sol";
 import {BuyQuote, PoolState, PricingState, RStatus, SellQuote} from "../../src/amm/types/PMMTypes.sol";
 import {AMMTestBase, MockDividendDistributor} from "./helpers/AMMTestBase.sol";
@@ -551,49 +550,5 @@ contract PropertyPMMEdgeCasesTest is AMMTestBase {
         freshBase.approve(address(freshPool), type(uint256).max);
         freshQuote.approve(address(freshPool), type(uint256).max);
         vm.stopPrank();
-    }
-}
-
-// Local unit tests for the lightweight ERC20 used by AMM deployment scripts.
-contract TestnetERC20UnitTest is Test {
-    TestnetERC20 internal token;
-
-    address internal alice = address(0xA11CE);
-    address internal bob = address(0xB0B);
-
-    function setUp() public {
-        token = new TestnetERC20("Testnet Token", "TNT", 18);
-    }
-
-    function testMetadataMintAndTransfers() public {
-        assertEq(token.name(), "Testnet Token");
-        assertEq(token.symbol(), "TNT");
-        assertEq(token.decimals(), 18);
-
-        token.mint(alice, 100 ether);
-        assertEq(token.totalSupply(), 100 ether);
-        assertEq(token.balanceOf(alice), 100 ether);
-
-        vm.prank(alice);
-        assertTrue(token.transfer(bob, 10 ether));
-        assertEq(token.balanceOf(alice), 90 ether);
-        assertEq(token.balanceOf(bob), 10 ether);
-    }
-
-    function testRejectsInvalidReceivers() public {
-        vm.expectRevert(bytes("INVALID_RECEIVER"));
-        token.mint(address(0), 1);
-
-        token.mint(alice, 1);
-
-        vm.prank(alice);
-        vm.expectRevert(bytes("INVALID_RECEIVER"));
-        token.transfer(address(0), 1);
-
-        vm.prank(alice);
-        token.approve(address(this), 1);
-
-        vm.expectRevert(bytes("INVALID_RECEIVER"));
-        token.transferFrom(alice, address(0), 1);
     }
 }

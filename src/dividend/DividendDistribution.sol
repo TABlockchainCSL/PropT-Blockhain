@@ -107,10 +107,11 @@ contract DividendDistribution is ReentrancyGuard, AccessControl {
     /**
      * @notice Deposit dividends and atomically push them into a pool's LP
      *         accounting in the same transaction.
-     * @dev Closes the JIT window where a pool's earned-but-unaccounted
-     *      dividends could be captured by a just-in-time LP: the new epoch is
-     *      accounted to the pool's *current* LP set before any later LP can
-     *      front-run a manual claim.
+     * @dev Closes the post-deposit window where a pool's earned-but-unaccounted
+     *      dividends could be captured before a separate manual claim. The new
+     *      epoch is deposited and accounted to the pool in the same transaction.
+     *      LP deposits ordered before this transaction remain outside this
+     *      guarantee.
      *
      *      The pool's claim runs as a nested call back into {claimDividends},
      *      so this function is intentionally NOT `nonReentrant` — otherwise the

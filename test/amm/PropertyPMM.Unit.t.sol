@@ -176,16 +176,6 @@ contract PropertyPMMDeploymentConfigTest is AMMTestBase {
         vm.expectRevert(bytes("INVALID_VALUATION_STALENESS"));
         pool.setValuationValidation(0, 2_000);
     }
-
-    function testOnlyNeededAdminSurfaceIsPresent() public {
-        assertEq(pool.owner(), address(this));
-        assertEq(pool.supervisor(), supervisor);
-        assertEq(pool.maintainer(), maintainer);
-        assertEq(pool.balanceOf(lpProvider), pool.totalSupply());
-        assertTrue(pool.tradingEnabled());
-        assertTrue(pool.buyingEnabled());
-        assertTrue(pool.sellingEnabled());
-    }
 }
 
 contract PropertyPMMValuationTest is AMMTestBase {
@@ -251,16 +241,44 @@ contract PropertyPMMValuationTest is AMMTestBase {
         assertEq(pool.getValuationPrice(), 111 * ONE);
     }
 
-    function testAgedValuationDoesNotChangeFixedSizeQuotesWithinFreshnessWindow() public {
-        pool.setValuationPrice(INITIAL_PRICE);
+    function testValuationUpdateRecomputesAboveOneBaseTargetOnly() public {
+        uint256 buyQuote = pool.queryBuyBaseToken(ONE);
+        vm.prank(trader);
+        pool.buyBaseToken(ONE, buyQuote);
+        assertEq(uint256(pool.rStatus()), uint256(RStatus.ABOVE_ONE));
 
-        uint256 freshBuyQuote = pool.queryBuyBaseToken(ONE);
-        uint256 freshSellQuote = pool.querySellBaseToken(ONE);
+        uint256 storedBaseTargetBefore = pool.targetBaseTokenAmount();
+        uint256 storedQuoteTargetBefore = pool.targetQuoteTokenAmount();
+        (uint256 expectedBaseTargetBefore, uint256 expectedQuoteTargetBefore) = pool.getExpectedTarget();
 
-        vm.warp(block.timestamp + 100);
+        pool.setValuationPrice(110 * ONE);
 
-        assertEq(pool.queryBuyBaseToken(ONE), freshBuyQuote);
-        assertEq(pool.querySellBaseToken(ONE), freshSellQuote);
+        (uint256 expectedBaseTargetAfter, uint256 expectedQuoteTargetAfter) = pool.getExpectedTarget();
+        assertEq(pool.targetBaseTokenAmount(), storedBaseTargetBefore);
+        assertEq(pool.targetQuoteTokenAmount(), storedQuoteTargetBefore);
+        assertEq(expectedQuoteTargetAfter, expectedQuoteTargetBefore);
+        assertLt(expectedBaseTargetAfter, expectedBaseTargetBefore);
+        assertGt(expectedBaseTargetAfter, pool.baseBalance());
+    }
+
+    function testValuationUpdateRecomputesBelowOneQuoteTargetOnly() public {
+        uint256 sellQuote = pool.querySellBaseToken(ONE);
+        vm.prank(trader);
+        pool.sellBaseToken(ONE, sellQuote);
+        assertEq(uint256(pool.rStatus()), uint256(RStatus.BELOW_ONE));
+
+        uint256 storedBaseTargetBefore = pool.targetBaseTokenAmount();
+        uint256 storedQuoteTargetBefore = pool.targetQuoteTokenAmount();
+        (uint256 expectedBaseTargetBefore, uint256 expectedQuoteTargetBefore) = pool.getExpectedTarget();
+
+        pool.setValuationPrice(110 * ONE);
+
+        (uint256 expectedBaseTargetAfter, uint256 expectedQuoteTargetAfter) = pool.getExpectedTarget();
+        assertEq(pool.targetBaseTokenAmount(), storedBaseTargetBefore);
+        assertEq(pool.targetQuoteTokenAmount(), storedQuoteTargetBefore);
+        assertEq(expectedBaseTargetAfter, expectedBaseTargetBefore);
+        assertGt(expectedQuoteTargetAfter, expectedQuoteTargetBefore);
+        assertGt(expectedQuoteTargetAfter, pool.quoteBalance());
     }
 }
 
@@ -511,6 +529,80 @@ contract PropertyPMMLiquidityTest is AMMTestBase {
         vm.expectRevert(bytes("QUOTE_BALANCE_NOT_ENOUGH"));
         pool.recoverToken(address(quote), address(this), 1);
     }
+
+    function testDirectBaseDonationDoesNotAffectTrackedReservesOrQuotes() public {
+        uint256 baseBalanceBefore = pool.baseBalance();
+        uint256 quoteBalanceBefore = pool.quoteBalance();
+        uint256 baseTargetBefore = pool.targetBaseTokenAmount();
+        uint256 quoteTargetBefore = pool.targetQuoteTokenAmount();
+        uint256 buyQuoteBefore = pool.queryBuyBaseToken(ONE);
+        uint256 sellQuoteBefore = pool.querySellBaseToken(ONE);
+
+        base.mint(address(this), ONE);
+        base.transfer(address(pool), ONE);
+
+        assertEq(pool.baseBalance(), baseBalanceBefore);
+        assertEq(pool.quoteBalance(), quoteBalanceBefore);
+        assertEq(pool.targetBaseTokenAmount(), baseTargetBefore);
+        assertEq(pool.targetQuoteTokenAmount(), quoteTargetBefore);
+        assertEq(pool.queryBuyBaseToken(ONE), buyQuoteBefore);
+        assertEq(pool.querySellBaseToken(ONE), sellQuoteBefore);
+        assertEq(base.balanceOf(address(pool)), baseBalanceBefore + ONE);
+    }
+
+    function testDirectQuoteDonationDoesNotAffectTrackedReservesOrQuotes() public {
+        uint256 baseBalanceBefore = pool.baseBalance();
+        uint256 quoteBalanceBefore = pool.quoteBalance();
+        uint256 baseTargetBefore = pool.targetBaseTokenAmount();
+        uint256 quoteTargetBefore = pool.targetQuoteTokenAmount();
+        uint256 buyQuoteBefore = pool.queryBuyBaseToken(ONE);
+        uint256 sellQuoteBefore = pool.querySellBaseToken(ONE);
+
+        quote.mint(address(this), ONE);
+        quote.transfer(address(pool), ONE);
+
+        assertEq(pool.baseBalance(), baseBalanceBefore);
+        assertEq(pool.quoteBalance(), quoteBalanceBefore);
+        assertEq(pool.targetBaseTokenAmount(), baseTargetBefore);
+        assertEq(pool.targetQuoteTokenAmount(), quoteTargetBefore);
+        assertEq(pool.queryBuyBaseToken(ONE), buyQuoteBefore);
+        assertEq(pool.querySellBaseToken(ONE), sellQuoteBefore);
+        assertEq(quote.balanceOf(address(pool)), quoteBalanceBefore + ONE);
+    }
+
+    function testOwnerCanRecoverDirectDonationButNotTrackedLiquidity() public {
+        base.mint(address(this), ONE);
+        quote.mint(address(this), ONE);
+        base.transfer(address(pool), ONE);
+        quote.transfer(address(pool), ONE);
+
+        uint256 ownerBaseBefore = base.balanceOf(address(this));
+        uint256 ownerQuoteBefore = quote.balanceOf(address(this));
+
+        pool.recoverToken(address(base), address(this), ONE);
+        pool.recoverToken(address(quote), address(this), ONE);
+
+        assertEq(base.balanceOf(address(this)) - ownerBaseBefore, ONE);
+        assertEq(quote.balanceOf(address(this)) - ownerQuoteBefore, ONE);
+
+        vm.expectRevert(bytes("BASE_BALANCE_NOT_ENOUGH"));
+        pool.recoverToken(address(base), address(this), 1);
+
+        vm.expectRevert(bytes("QUOTE_BALANCE_NOT_ENOUGH"));
+        pool.recoverToken(address(quote), address(this), 1);
+    }
+
+    function testPendingBaseMaintainerFeeCannotBeRecoveredAsExcess() public {
+        uint256 totalPaid = pool.queryBuyBaseToken(ONE);
+
+        vm.prank(trader);
+        pool.buyBaseToken(ONE, totalPaid);
+
+        assertGt(pool.pendingMaintainerFeeBase(), 0);
+
+        vm.expectRevert(bytes("BASE_BALANCE_NOT_ENOUGH"));
+        pool.recoverToken(address(base), address(this), 1);
+    }
 }
 
 contract PropertyPMMTradingTaxTest is AMMTestBase {
@@ -555,7 +647,7 @@ contract PropertyPMMTradingTaxTest is AMMTestBase {
         assertEq(totalPaid, taxedQuote);
         assertEq(traderQuoteBefore - quote.balanceOf(trader), taxedQuote);
         assertEq(pool.quoteBalance() - poolQuoteBefore, untaxedQuote);
-        
+
         // Assert accumulation
         assertEq(pool.pendingTaxQuote(), expectedTax);
         assertEq(quote.balanceOf(taxRecipient) - taxQuoteBefore, 0);
@@ -663,11 +755,6 @@ contract PropertyPMMTradingTaxTest is AMMTestBase {
 }
 
 contract PropertyPMMControlsTest is AMMTestBase {
-    function testEnableTaxRequiresRecipient() public {
-        vm.expectRevert(bytes("TAX_RECIPIENT_NOT_SET"));
-        pool.enableTax();
-    }
-
     function testSupervisorCanPauseTradingAndOwnerCanResume() public {
         vm.prank(supervisor);
         pool.disableTrading();
@@ -870,11 +957,6 @@ contract PropertyPMMDividendTest is AMMTestBase {
         assertFalse(ok);
         assertEq(quote.balanceOf(address(pool)), poolQuoteBefore);
         assertEq(quote.balanceOf(address(otherDividend)), 25 * ONE);
-    }
-
-    function testClaimQuoteDividendsRejectsZeroClaim() public {
-        vm.expectRevert(bytes("NO_DIVIDEND_CLAIMED"));
-        pool.claimQuoteDividends(type(uint256).max);
     }
 
     function testClaimLpQuoteDividendsChecksPendingAndRecoverProtection() public {

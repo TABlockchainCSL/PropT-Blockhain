@@ -50,9 +50,6 @@ contract PropertyPMMHandler is Test {
 
     function provideLiquidity(uint256 actorSeed, uint96 rawBaseAmount, uint96 rawQuoteAmount) external {
         provideCalls++;
-        if (pool.totalSupply() == 0 || pool.rStatus() != RStatus.ONE) {
-            return;
-        }
 
         address actor = _actor(actorSeed);
         uint256 baseAmount = bound(uint256(rawBaseAmount), 1e12, 5 * ONE);

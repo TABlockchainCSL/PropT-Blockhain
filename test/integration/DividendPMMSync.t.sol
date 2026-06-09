@@ -22,7 +22,7 @@ contract MockUSDC is ERC20 {
 /// @title DividendPMMSyncIntegration
 /// @notice End-to-end: real PropertyToken + KYCRegistry + DividendDistribution +
 ///         PropertyPMM, proving depositDividendsAndSync routes a pool's dividend
-///         share into LP accounting atomically and leaves no JIT window.
+///         share into LP accounting without a post-deposit manual-sync gap.
 contract DividendPMMSyncIntegration is Test {
     // Reuse the PMM defaults that AMMTestBase is known to construct with.
     uint256 internal constant INITIAL_PRICE = 100e18;
@@ -135,15 +135,15 @@ contract DividendPMMSyncIntegration is Test {
         assertEq(usdc.balanceOf(lpProvider) - lpBefore, expectedPoolShare);
     }
 
-    /// @notice The atomic sync leaves no window: an LP that joins AFTER the
-    ///         dividend is accounted captures nothing from it.
-    function test_endToEnd_syncLeavesNoJITWindow() public {
+    /// @notice An LP that joins after the atomic deposit and sync cannot capture
+    ///         dividends that have already been accounted.
+    function test_endToEnd_syncPreventsPostDepositJITCapture() public {
         vm.startPrank(spv);
         usdc.approve(address(dividend), 1000e6);
         dividend.depositDividendsAndSync(1000e6, address(pool));
         vm.stopPrank();
 
-        // A would-be JIT LP joins now — after the dividend is already accounted.
+        // An LP joins after the dividend is already accounted.
         address jit = makeAddr("jit");
         kyc.addUser(jit);
         token.transfer(jit, POOL_BASE);
@@ -161,5 +161,28 @@ contract DividendPMMSyncIntegration is Test {
         vm.expectRevert(bytes("CLAIM_NOT_AUTHORIZED"));
         pool.claimQuoteDividends(type(uint256).max);
         assertEq(pool.pendingLpQuoteDividends(jit), 0);
+    }
+
+    /// @notice Real KYCRegistry integration: PMM LP tokens can only move between
+    ///         currently KYC-verified users or approved contracts.
+    function test_endToEnd_realKycControlsLpTransfers() public {
+        address receiver = makeAddr("lpReceiver");
+        kyc.addUser(receiver);
+
+        uint256 transferAmount = pool.balanceOf(lpProvider) / 4;
+
+        vm.prank(lpProvider);
+        assertTrue(pool.transfer(receiver, transferAmount));
+        assertEq(pool.balanceOf(receiver), transferAmount);
+
+        kyc.removeUser(receiver);
+        vm.prank(receiver);
+        vm.expectRevert(abi.encodeWithSelector(PropertyPMM.SenderNotAuthorized.selector, receiver));
+        pool.transfer(lpProvider, transferAmount);
+
+        kyc.addUser(receiver);
+        vm.prank(receiver);
+        assertTrue(pool.transfer(lpProvider, transferAmount));
+        assertEq(pool.balanceOf(receiver), 0);
     }
 }
