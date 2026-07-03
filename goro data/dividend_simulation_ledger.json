@@ -1,0 +1,278 @@
+[
+  {
+    "epoch": 1,
+    "month": "Jun 2025",
+    "amount_deposited": "740000000000000000000",
+    "deposit_tx": "5b590eefaec28b5d2718a23d7e17d41f617cabc739ad73a770935dee5dfab617",
+    "pmm_received": "160588880000000000000",
+    "claims": {
+      "HOLDER": {
+        "claimed": "376650380000000000000",
+        "pending_before": "376650380000000000000",
+        "tx": "367a63320cc580eabf6d1cb258e7483e97d97384aa8281dda062acfeafc62fe4",
+        "gas_used": 91969
+      }
+    }
+  },
+  {
+    "epoch": 2,
+    "month": "Jul 2025",
+    "amount_deposited": "800000000000000000000",
+    "deposit_tx": "2a8296ab9bf88a155ffb0a86101712e2656566c4a29cc6d647500c4080c98942",
+    "pmm_received": "173609600000000000000",
+    "claims": {
+      "HOLDER": {
+        "claimed": "407189600000000000000",
+        "pending_before": "407189600000000000000",
+        "tx": "fe97124dc09b05130f51dfa3ad8ad0dfbd1f0223e00cb85df4d187807955868c",
+        "gas_used": 91969
+      },
+      "Investor_E": {
+        "claimed": "15400000000000000000",
+        "pending_before": "15400000000000000000",
+        "tx": "16ae2de0a0622dc2e21597b9650ceb16edbd54a24995afc0b845140f64e8cc4a",
+        "gas_used": 109776
+      }
+    }
+  },
+  {
+    "epoch": 3,
+    "month": "Aug 2025",
+    "amount_deposited": "810000000000000000000",
+    "deposit_tx": "4d2c0bb0671fcfcda8af73236d7fe4c60217f4aa1d131c65386901c958e179d3",
+    "pmm_received": "175779720000000000000",
+    "claims": {
+      "HOLDER": {
+        "claimed": "412279470000000000000",
+        "pending_before": "412279470000000000000",
+        "tx": "a6bf89f8ba781aef105e100e2985eda69683795501bdd7b882a7f46aabb10f55",
+        "gas_used": 91969
+      },
+      "Investor_A": {
+        "claimed": "235000000000000000000",
+        "pending_before": "235000000000000000000",
+        "tx": "f4f675e7ab7e977fc9e7a22f03b6808d45e9d1516bb4040dfb6c50850149dd37",
+        "gas_used": 118521
+      }
+    }
+  },
+  {
+    "epoch": 4,
+    "month": "Sep 2025",
+    "amount_deposited": "839999999999999868928",
+    "deposit_tx": "4ee46b767628e5754f64123bd22d5e50e073ddb05100e4b9584e56a917d902ca",
+    "pmm_received": "182290079999999782988",
+    "claims": {
+      "HOLDER": {
+        "claimed": "427549079999999491013",
+        "pending_before": "427549079999999491013",
+        "tx": "e9b151b28f1a7d0464fce0301b5e12e50a373e33a9b63ee020a97850c990c3cb",
+        "gas_used": 91969
+      },
+      "Investor_C": {
+        "claimed": "63799999999999980000",
+        "pending_before": "63799999999999980000",
+        "tx": "dd5f3e26e7c0adda8777c7b47af68ab05105b4cd4c98ca86a0a1e29cee67fb2e",
+        "gas_used": 127266
+      }
+    }
+  },
+  {
+    "epoch": 5,
+    "month": "Oct 2025",
+    "amount_deposited": "589999999999999934464",
+    "deposit_tx": "d29be2b8adaa5df0f1b3292a5d7c321165ececda898e413c47e3b95f0faab8d1",
+    "pmm_received": "128037079999999782988",
+    "claims": {
+      "HOLDER": {
+        "claimed": "300302329999999491013",
+        "pending_before": "300302329999999491013",
+        "tx": "aa11562ab8b97b3ef05af6813b4fb3e10648afc9c1116cdbd20d89619785e21b",
+        "gas_used": 91969
+      },
+      "DEPLOYER": {
+        "claimed": "355319999999999812000",
+        "pending_before": "355319999999999812000",
+        "tx": "1c7f0c5b02e2ce06e69af5139181fdf65b60d3ec6a499258994da5a8485148d5",
+        "gas_used": 123496
+      }
+    }
+  },
+  {
+    "epoch": 6,
+    "month": "Nov 2025",
+    "amount_deposited": "569999999999999868928",
+    "deposit_tx": "bb88648b4a3c7d039bad42b9222fdf03c71d3c1be7bb99b54bb7dabd6b689777",
+    "pmm_received": "123696839999999782988",
+    "claims": {
+      "HOLDER": {
+        "claimed": "290122589999999491013",
+        "pending_before": "290122589999999491013",
+        "tx": "0d3657511c98aff3bf1547e6ed4266b754b7b5325b66d37a82033789b334869d",
+        "gas_used": 91969
+      },
+      "Investor_A": {
+        "claimed": "199999999999999700000",
+        "pending_before": "199999999999999700000",
+        "tx": "afd6227147fcffdd43fe539bbe18723a37d678f98ad59d0ea7cfcba1e746f9f4",
+        "gas_used": 101421
+      },
+      "Investor_B": {
+        "claimed": "130499999999999910000",
+        "pending_before": "130499999999999910000",
+        "tx": "df0e63821ec9ad23b60edaafbf803987b18e88d134e8a12144d9465a76c26b66",
+        "gas_used": 144756
+      }
+    }
+  },
+  {
+    "epoch": 7,
+    "month": "Dec 2025",
+    "amount_deposited": "670000000000000000000",
+    "deposit_tx": "e00612ca4d00aa71803b1b8c9084d8edf1b57b5e0d772522e7de07a27e2dfbdc",
+    "pmm_received": "145398040000000000000",
+    "claims": {
+      "HOLDER": {
+        "claimed": "341021290000000000000",
+        "pending_before": "341021290000000000000",
+        "tx": "35e61b6b7683680069a9f36b0d8c67a3dfcdbfe0827c1a5f5b970dc9954eeb5b",
+        "gas_used": 91969
+      },
+      "Investor_E": {
+        "claimed": "34799999999999970000",
+        "pending_before": "34799999999999970000",
+        "tx": "251be732305b61c48ad7d522b7420441ab422de63dc1a8e53a00bce371913d03",
+        "gas_used": 118911
+      }
+    }
+  },
+  {
+    "epoch": 8,
+    "month": "Jan 2026",
+    "amount_deposited": "670000000000000000000",
+    "deposit_tx": "acf18ed6756e2d6dc92f3eeabff25694eefc3691b02003795d617b8597cad83c",
+    "pmm_received": "145398040000000000000",
+    "claims": {
+      "HOLDER": {
+        "claimed": "341021290000000000000",
+        "pending_before": "341021290000000000000",
+        "tx": "e303ec06a1ce62bfba0471241100d7cd40ce5c57bb9fae1bca5d9ba3ad63f4b7",
+        "gas_used": 91969
+      },
+      "Investor_C": {
+        "claimed": "49999999999999960000",
+        "pending_before": "49999999999999960000",
+        "tx": "b378875f24fded8403c89d7f56cb7e88a1cba9b46d65a230583e829352befd03",
+        "gas_used": 110166
+      }
+    }
+  },
+  {
+    "epoch": 9,
+    "month": "Feb 2026",
+    "amount_deposited": "499999999999999934464",
+    "deposit_tx": "5e1ed10aec57dddf32893ba1e40d9faf454f417a09d00f2cdbd7b01a98c0b6b0",
+    "pmm_received": "108505999999999782988",
+    "claims": {
+      "HOLDER": {
+        "claimed": "0",
+        "pending_before": "254493499999999491013",
+        "tx": "f06c6ff97bb70c14720c7ec16c4fbc2e1c0d002b6eaf6a5f26b0aee0bebb5f84",
+        "gas_used": 91969
+      },
+      "Investor_A": {
+        "claimed": "183999999999999900000",
+        "pending_before": "183999999999999900000",
+        "tx": "78cc0a15f839fb2cc4bbae53c5eaebdbbe6dcb183fba4ff1bedf0077af9c8ad5",
+        "gas_used": 101421
+      }
+    }
+  },
+  {
+    "epoch": 10,
+    "month": "Mar 2026",
+    "amount_deposited": "589999999999999934464",
+    "deposit_tx": "a3a7569f4cfb5e2bf2a00f02d5771669bdf3ea8589292a24525af80514c1dce8",
+    "pmm_received": "128037079999999782988",
+    "claims": {
+      "HOLDER": {
+        "claimed": "300302329999999491013",
+        "pending_before": "300302329999999491013",
+        "tx": "f6cff8e9c6d3b8076f8961ddcd73b1a3f9b945bc36f9db49a5e189c255248ebe",
+        "gas_used": 91969
+      },
+      "DEPLOYER": {
+        "claimed": "281999999999999718000",
+        "pending_before": "281999999999999718000",
+        "tx": "5292457adc87a175ff14bfa6f9f4967ddf93d8ca5d7fea72a9892cabd8986bba",
+        "gas_used": 123496
+      }
+    }
+  },
+  {
+    "epoch": 11,
+    "month": "Apr 2026",
+    "amount_deposited": "620000000000000000000",
+    "deposit_tx": "d9ede3abed7b50b85f76269f3918bbadc920073232e233d2736b94ff91a6937b",
+    "pmm_received": "134547440000000000000",
+    "claims": {
+      "HOLDER": {
+        "claimed": "315571940000000000000",
+        "pending_before": "315571940000000000000",
+        "tx": "8c5f378ebe36f138b78eca41953cd00529a2b32ce7d50fd035c8895ed9a00a09",
+        "gas_used": 91969
+      },
+      "Investor_E": {
+        "claimed": "23799999999999980000",
+        "pending_before": "23799999999999980000",
+        "tx": "5db28df3f3c8e4e0621d0f6f6f5fa494b92a8c712436fa11ee0c4b04715aa97a",
+        "gas_used": 110166
+      }
+    }
+  },
+  {
+    "epoch": 12,
+    "month": "May 2026",
+    "amount_deposited": "630000000000000000000",
+    "deposit_tx": "c9fe56fc6865dbdac26db7bd0e8678be630d747c3bf1c9b4764979d390bd6a19",
+    "pmm_received": "136717560000000000000",
+    "claims": {
+      "HOLDER": {
+        "claimed": "320661810000000000000",
+        "pending_before": "320661810000000000000",
+        "tx": "17cbffd78643753dc576a5a0f857a4e382aa3c3c3ea0817574e2841fd1c21376",
+        "gas_used": 91969
+      },
+      "Investor_A": {
+        "claimed": "183999999999999900000",
+        "pending_before": "183999999999999900000",
+        "tx": "8182d74c9fdd155a21d1f02f219b77d90b0d50b157287eea4c603758100acb08",
+        "gas_used": 101421
+      },
+      "Investor_B": {
+        "claimed": "110399999999999940000",
+        "pending_before": "110399999999999940000",
+        "tx": "b2b1705dc639887f625bdb7a53b60ba0caf5fdd524a9e3c7edc8f1eaf0d830e9",
+        "gas_used": 127656
+      },
+      "Investor_C": {
+        "claimed": "46799999999999960000",
+        "pending_before": "46799999999999960000",
+        "tx": "77ccb8ca74bde5b36544f16b005083e48ed341fc6471ee97c051b05987b43599",
+        "gas_used": 110166
+      },
+      "Investor_D": {
+        "claimed": "120449999999999925000",
+        "pending_before": "120449999999999925000",
+        "tx": "5b09e658bab72151a8653311b8883734f8daf12e5dc3943b43f006b2b56b1640",
+        "gas_used": 197227
+      },
+      "DEPLOYER": {
+        "claimed": "117500000000000000000",
+        "pending_before": "117500000000000000000",
+        "tx": "6702f2ff09b5172825f67ae1f81e4b941e1002e58a4620f12ca6c0ada42bbe77",
+        "gas_used": 95710
+      }
+    }
+  }
+]

@@ -315,21 +315,6 @@ Detector: dead-code
 AMMConfig._onValuationCircuitBreaker() (src/amm/base/AMMConfig.sol#240) is never used and should be removed
 Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#dead-code
 INFO:Detectors:
-Detector: solc-version
-Version constraint ^0.8.13 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
-	- VerbatimInvalidDeduplication
-	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
-	- MissingSideEffectsOnSelectorAccess
-	- StorageWriteRemovalBeforeConditionalTermination
-	- AbiReencodingHeadOverflowWithStaticArrayCleanup
-	- DirtyBytesArrayToStorage
-	- InlineAssemblyMemorySideEffects
-	- DataLocationChangeInInternalOverride
-	- NestedCalldataArrayAbiReencodingSizeValidation.
-It is used by:
-	- ^0.8.13 (src/Counter.sol#2)
-Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#incorrect-versions-of-solidity
-INFO:Detectors:
 Detector: low-level-calls
 Low level call in MultiSigWallet.executeTransaction(uint256) (src/governance-upgrade/MultiSigWallet.sol#123-136):
 	- (success,None) = txn.to.call{value: txn.value}(txn.data) (src/governance-upgrade/MultiSigWallet.sol#132)
@@ -376,4 +361,4 @@ INFO:Detectors:
 Detector: immutable-states
 AMMConfig.k (src/amm/base/AMMConfig.sol#35) should be immutable 
 Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#state-variables-that-could-be-declared-immutable
-INFO:Slither:. analyzed (99 contracts with 101 detectors), 81 result(s) found
+INFO:Slither:. analyzed (98 contracts with 101 detectors), 80 result(s) found

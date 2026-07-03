@@ -1,0 +1,134 @@
+Connected: chain=560048  block=3082732  fork=False
+
+── Generating investor wallets ──
+  Investor_A: 0xE85FF1772795E9a760A295214e6f65231C659a7A
+  Investor_B: 0x4DC4431D97E3816f6E06957a411aBf6C46C77ff5
+  Investor_C: 0xe4aB9516a0880BfD9f3D88175674293099f674f8
+  Investor_D: 0x8B485F58823339B8adD0b6E0D88FE19f6E47edc7
+  Investor_E: 0xb9074552E05de7d200493e2B37a85eE7dDa340A5
+
+── Funding investors with ETH ──
+  Investor_A: already has 0.0500 ETH, skip
+  Investor_B: already has 0.0500 ETH, skip
+  Investor_C: already has 0.0500 ETH, skip
+  Investor_D: already has 0.0500 ETH, skip
+  Investor_E: already has 0.0500 ETH, skip
+
+── KYC / transfer / delegate ──
+  Investor_A: KYC✓  50,000 PDemo transferred  delegated✓
+  Investor_B: KYC✓  30,000 PDemo transferred  delegated✓
+  Investor_C: KYC✓  20,000 PDemo transferred  delegated✓
+  Investor_D: KYC✓  15,000 PDemo transferred  delegated✓
+  Investor_E: KYC✓  10,000 PDemo transferred  delegated✓
+
+── Skipping 3 existing epoch(s) ──
+  All participants advanced past existing epochs
+
+── Pre-simulation tUSD balances ──
+  HOLDER      : tUSD=    51022.8565  votes=  508,987
+  DEPLOYER    : tUSD=   749981.0990  votes=   94,000
+  Investor_A  : tUSD=        0.0000  votes=  100,000
+  Investor_B  : tUSD=        0.0000  votes=   30,000
+  Investor_C  : tUSD=        0.0000  votes=   20,000
+  Investor_D  : tUSD=        0.0000  votes=   15,000
+  Investor_E  : tUSD=        0.0000  votes=   10,000
+  PMM         : tUSD=   199173.8321  votes=  217,012
+
+  SPV approved tUSD → DividendDistributor
+
+── Running 12 dividend epochs ──
+  Existing epochs before simulation: 3
+
+  Epoch  1 [Jun 2025]  deposit=740.00 tUSD
+    deposit tx: 5b590eefaec28b5d2718a23d7e17d41f617cabc739ad73a770935dee5dfab617
+    PMM received: 160.5889 tUSD
+    HOLDER       claimed:   376.6504 tUSD  (pending was 376.6504)
+
+  Epoch  2 [Jul 2025]  deposit=800.00 tUSD
+    deposit tx: 2a8296ab9bf88a155ffb0a86101712e2656566c4a29cc6d647500c4080c98942
+    PMM received: 173.6096 tUSD
+    HOLDER       claimed:   407.1896 tUSD  (pending was 407.1896)
+    Investor_E   claimed:    15.4000 tUSD  (pending was 15.4000)
+
+  Epoch  3 [Aug 2025]  deposit=810.00 tUSD
+    deposit tx: 4d2c0bb0671fcfcda8af73236d7fe4c60217f4aa1d131c65386901c958e179d3
+    PMM received: 175.7797 tUSD
+    HOLDER       claimed:   412.2795 tUSD  (pending was 412.2795)
+    Investor_A   claimed:   235.0000 tUSD  (pending was 235.0000)
+
+  Epoch  4 [Sep 2025]  deposit=840.00 tUSD
+    deposit tx: 4ee46b767628e5754f64123bd22d5e50e073ddb05100e4b9584e56a917d902ca
+    PMM received: 182.2901 tUSD
+    HOLDER       claimed:   427.5491 tUSD  (pending was 427.5491)
+    Investor_C   claimed:    63.8000 tUSD  (pending was 63.8000)
+
+  Epoch  5 [Oct 2025]  deposit=590.00 tUSD
+    deposit tx: d29be2b8adaa5df0f1b3292a5d7c321165ececda898e413c47e3b95f0faab8d1
+    PMM received: 128.0371 tUSD
+    HOLDER       claimed:   300.3023 tUSD  (pending was 300.3023)
+    DEPLOYER     claimed:   355.3200 tUSD  (pending was 355.3200)
+
+  Epoch  6 [Nov 2025]  deposit=570.00 tUSD
+    deposit tx: bb88648b4a3c7d039bad42b9222fdf03c71d3c1be7bb99b54bb7dabd6b689777
+    PMM received: 123.6968 tUSD
+    HOLDER       claimed:   290.1226 tUSD  (pending was 290.1226)
+    Investor_A   claimed:   200.0000 tUSD  (pending was 200.0000)
+    Investor_B   claimed:   130.5000 tUSD  (pending was 130.5000)
+
+  Epoch  7 [Dec 2025]  deposit=670.00 tUSD
+    deposit tx: e00612ca4d00aa71803b1b8c9084d8edf1b57b5e0d772522e7de07a27e2dfbdc
+    PMM received: 145.3980 tUSD
+    HOLDER       claimed:   341.0213 tUSD  (pending was 341.0213)
+    Investor_E   claimed:    34.8000 tUSD  (pending was 34.8000)
+
+  Epoch  8 [Jan 2026]  deposit=670.00 tUSD
+    deposit tx: acf18ed6756e2d6dc92f3eeabff25694eefc3691b02003795d617b8597cad83c
+    PMM received: 145.3980 tUSD
+    HOLDER       claimed:   341.0213 tUSD  (pending was 341.0213)
+    Investor_C   claimed:    50.0000 tUSD  (pending was 50.0000)
+
+  Epoch  9 [Feb 2026]  deposit=500.00 tUSD
+    deposit tx: 5e1ed10aec57dddf32893ba1e40d9faf454f417a09d00f2cdbd7b01a98c0b6b0
+    PMM received: 108.5060 tUSD
+    HOLDER       claimed:     0.0000 tUSD  (pending was 254.4935)
+    Investor_A   claimed:   184.0000 tUSD  (pending was 184.0000)
+
+  Epoch 10 [Mar 2026]  deposit=590.00 tUSD
+    deposit tx: a3a7569f4cfb5e2bf2a00f02d5771669bdf3ea8589292a24525af80514c1dce8
+    PMM received: 128.0371 tUSD
+    HOLDER       claimed:   300.3023 tUSD  (pending was 300.3023)
+    DEPLOYER     claimed:   282.0000 tUSD  (pending was 282.0000)
+
+  Epoch 11 [Apr 2026]  deposit=620.00 tUSD
+    deposit tx: d9ede3abed7b50b85f76269f3918bbadc920073232e233d2736b94ff91a6937b
+    PMM received: 134.5474 tUSD
+    HOLDER       claimed:   315.5719 tUSD  (pending was 315.5719)
+    Investor_E   claimed:    23.8000 tUSD  (pending was 23.8000)
+
+  Epoch 12 [May 2026]  deposit=630.00 tUSD
+    deposit tx: c9fe56fc6865dbdac26db7bd0e8678be630d747c3bf1c9b4764979d390bd6a19
+    PMM received: 136.7176 tUSD
+    HOLDER       claimed:   320.6618 tUSD  (pending was 320.6618)
+    Investor_A   claimed:   184.0000 tUSD  (pending was 184.0000)
+    Investor_B   claimed:   110.4000 tUSD  (pending was 110.4000)
+    Investor_C   claimed:    46.8000 tUSD  (pending was 46.8000)
+    Investor_D   claimed:   120.4500 tUSD  (pending was 120.4500)
+    DEPLOYER     claimed:   117.5000 tUSD  (pending was 117.5000)
+
+── Final tUSD balances ──
+
+  Name             Votes   Share       Expected         Actual      Δ wei
+  ------------------------------------------------------------------------
+  HOLDER         508,987  51.15%      4107.7083      3832.6721 -275036149003276923116
+  DEPLOYER        94,000   9.45%       758.6138       754.8200 -3793827752591043568
+  Investor_A     100,000  10.05%       807.0360       803.0000 -4035986970841686304
+  Investor_B      30,000   3.02%       242.1108       240.9000 -1210796091252492784
+  Investor_C      20,000   2.01%       161.4072       160.6000 -807197394168317600
+  Investor_D      15,000   1.51%       121.0554       120.4500 -605398045626246392
+  Investor_E      10,000   1.01%        80.7036        74.0000 -6703598697084158800
+  PMM            217,012  21.81%      1751.3649      1742.6064 -8758576045162958468
+
+  Total deposited : 8030.00 tUSD
+  Total claimed   : 7729.05 tUSD
+
+  Ledger saved: /mnt/c/Users/Lenovo/Desktop/Skripsi/Code/goro-trading-data/PropT-Blockhain/goro data/dividend_simulation_ledger.json

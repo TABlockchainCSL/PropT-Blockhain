@@ -7,6 +7,8 @@ test/amm/ImpermanentLossComparison.t.sol
 
 # Environment
 .env
+goro data/.env
+goro data/.vendor/
 
 # Node (legacy)
 node_modules/
@@ -29,4 +31,3 @@ docs/
 
 # Antigravity
 .antigravitycli/
-

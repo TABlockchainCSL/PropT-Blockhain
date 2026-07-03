@@ -22,6 +22,7 @@ ffi = true
 ast = true
 build_info = true
 extra_output = ["storageLayout"]
+fs_permissions = [{ access = "read-write", path = "./goro data" }]
 
 [fuzz]
 runs = 1000
