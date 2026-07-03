@@ -29,5 +29,9 @@ docs/
 *.pdf
 *.md
 
+# Python
+__pycache__/
+*.pyc
+
 # Antigravity
 .antigravitycli/
